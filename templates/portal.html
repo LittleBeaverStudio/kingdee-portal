@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>金蝶经营门户</title>
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v=1">
+{# 发布号统一取 portal_config.json；python scripts/release.py 按十进制递增。
+   同一次迭代只升一次，页面与所有 CSS/JS 的缓存键始终同步。 #}
+<link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}?v={{ version }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='analytics.css') }}?v={{ version }}">
+<script src="{{ url_for('static', filename='theme.js') }}?v={{ version }}"></script>
+</head>
+<body>
+<svg class="svg-library" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs>
+  <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></symbol>
+  <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 3v17h17M8 15v-4m5 4V6m5 9V9"/></symbol>
+  <symbol id="i-wallet" viewBox="0 0 24 24"><path d="M20 8V5a2 2 0 0 0-2-2H6a3 3 0 0 0 0 6h14v11H6a3 3 0 0 1-3-3V6"/><path d="M20 12h-5v4h5"/></symbol>
+  <symbol id="i-org" viewBox="0 0 24 24"><rect x="8" y="2" width="8" height="6" rx="1"/><path d="M12 8v4M5 16v-4h14v4"/><rect x="2" y="16" width="6" height="6" rx="1"/><rect x="16" y="16" width="6" height="6" rx="1"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 2H5v20h14V7l-5-5v5h5M8 12h8M8 16h8"/></symbol>
+  <symbol id="i-send" viewBox="0 0 24 24"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></symbol>
+  <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21v-2a8 8 0 0 1 16 0v2"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V6a4 4 0 0 1 8 0v4M12 14v3"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 7v5h-5M4 17v-5h5M6 7a7 7 0 0 1 12-1l2 3M4 15l2 3a7 7 0 0 0 12-1"/></symbol>
+  <symbol id="i-out" viewBox="0 0 24 24"><path d="M9 4H4v16h5M10 12h11m-4-4 4 4-4 4"/></symbol>
+  <symbol id="i-arrow" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="m12 2 8 4v6c0 5-8 10-8 10S4 17 4 12V6l8-4Z"/><path d="m8 12 3 3 5-6"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5M17.5 17.5 19 19M19 5l-1.5 1.5M6.5 17.5 5 19"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z"/></symbol>
+</defs></svg>
+<div id="cfg" data-logged-in="{{ '1' if logged_in else '0' }}" data-local-mode="{{ '1' if local_mode|default(false) else '0' }}" data-default-server="{{ default_server }}" data-default-acct="{{ default_acct }}" data-max-bills="{{ max_bills }}" data-login-name="{{ login_name }}"></div>
+
+<section class="login-wrap" id="screen-login" hidden>
+  <header class="login-top">
+    <div class="brand-inline"><span class="brand-mark"><svg class="icon"><use href="#i-grid"/></svg></span>金蝶经营门户</div>
+    <div class="login-top-actions">
+      <span class="read-only-tag"><svg class="icon"><use href="#i-shield"/></svg>{{ '按金蝶账号权限操作' if local_mode|default(false) else '只读工作台' }}</span>
+      <button class="btn theme-toggle" type="button" data-theme-toggle aria-label="切换配色"><svg class="icon"><use href="#i-sun"/></svg></button>
+    </div>
+  </header>
+  <div class="login-layout">
+    <div class="login-story">
+      <div class="eyebrow">BUSINESS INSIGHTS</div>
+      <h1 class="login-headline">让经营数据<br>一目了然<span>。</span></h1>
+      <p class="login-description">费用与资金，尽在一个工作台。</p>
+      <div class="story-visual" aria-hidden="true">
+        <div class="visual-orbit orbit-one"></div><div class="visual-orbit orbit-two"></div>
+        <div class="visual-node node-one"><svg class="icon"><use href="#i-wallet"/></svg></div>
+        <div class="visual-node node-two"><svg class="icon"><use href="#i-chart"/></svg></div>
+        <div class="visual-core"><div class="visual-top"><span></span><span></span><span></span></div><div class="visual-line"></div><div class="visual-bars"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+      </div>
+      <div class="story-caption"><span class="live"></span>金蝶云星空 · 数据直连</div>
+    </div>
+    <div class="login-card">
+      <div class="login-mark"><svg class="icon"><use href="#i-grid"/></svg></div>
+      <h2>欢迎回来</h2>
+      <p class="login-sub" id="login-sub">登录你的经营工作台</p>
+      <form id="login-form">
+        <div class="field" id="local-company-field" hidden><label for="f-company">公司名称</label><div class="input-wrap"><input id="f-company" aria-label="公司名称" placeholder="请输入公司名称" autocomplete="organization"></div></div>
+         <div class="field" id="local-server-field" hidden><label for="f-local-server">服务器地址</label><div class="input-wrap"><input id="f-local-server" type="url" aria-label="服务器地址" placeholder="https://your.ik3cloud.com/" autocomplete="url"></div></div>
+         <div class="field"><label for="f-user">用户名</label><div class="input-wrap"><input id="f-user" aria-label="金蝶登录账号" placeholder="请输入用户名" autocomplete="username" required></div></div>
+        <div class="field"><label for="f-pass">密码</label><div class="input-wrap"><input id="f-pass" aria-label="密码" type="password" placeholder="请输入密码" autocomplete="current-password" required><button type="button" class="password-toggle" id="btn-password" aria-label="显示密码" aria-pressed="false"><svg class="icon"><use href="#i-eye"/></svg></button></div></div>
+        <div class="msg err" id="login-msg" role="alert" hidden></div>
+        <button class="btn pri blk" id="btn-login" type="submit">登录工作台</button>
+        <details class="connection-settings" id="connection-settings">
+          <summary>连接设置 <span id="srv-summary" hidden></span></summary>
+          <div id="srv-fields">
+            <div class="field"><label for="f-server">服务器地址 <span class="muted" id="srv-optional"></span></label><div class="row2"><input id="f-server" type="url" placeholder="https://your.ik3cloud.com/" value="{{ default_server }}"><button type="button" class="btn" id="btn-acct">获取账套</button></div></div>
+            <div class="field"><label for="f-acct">账套名称或 ID</label><input id="f-acct" placeholder="请输入账套" value="{{ default_acct }}"><div class="hint" id="acct-hint" role="status"></div></div>
+          </div>
+        </details>
+      </form>
+      <details class="login-security"><summary><svg class="icon"><use href="#i-shield"/></svg>使用金蝶账号安全登录</summary><div class="hint">{{ '数据与操作权限由你的金蝶账号决定。密码仅在本次运行的内存中使用，不默认保存；服务重启后需重新登录。' if local_mode|default(false) else '数据范围由你的金蝶权限决定。凭据仅用于建立金蝶会话，按公司设置在内存保存或加密落盘，不写入日志。' }}连续输错密码可能锁号，请核对后重试。</div></details>
+    </div>
+  </div>
+  <footer class="login-footer">金蝶经营门户 <span>·</span> {{ '本地工作台' if local_mode|default(false) else '本地只读应用' }}</footer>
+</section>
+
+<section class="login-wrap" id="screen-admin-login" hidden>
+  <header class="login-top">
+    <div class="brand-inline"><span class="brand-mark"><svg class="icon"><use href="#i-grid"/></svg></span>金蝶经营门户</div>
+    <div class="login-top-actions">
+      <span class="read-only-tag"><svg class="icon"><use href="#i-shield"/></svg>平台运营后台</span>
+      <button class="btn theme-toggle" type="button" data-theme-toggle aria-label="切换配色"><svg class="icon"><use href="#i-sun"/></svg></button>
+    </div>
+  </header>
+  <div class="login-layout">
+    <div class="login-story">
+      <div class="eyebrow">PLATFORM CONSOLE</div>
+      <h1 class="login-headline">平台运营<br>一屏掌握<span>。</span></h1>
+      <div class="story-visual" aria-hidden="true">
+        <div class="visual-orbit orbit-one"></div><div class="visual-orbit orbit-two"></div>
+        <div class="visual-node node-one"><svg class="icon"><use href="#i-org"/></svg></div>
+        <div class="visual-node node-two"><svg class="icon"><use href="#i-chart"/></svg></div>
+        <div class="visual-core"><div class="visual-top"><span></span><span></span><span></span></div><div class="visual-line"></div><div class="visual-bars"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+      </div>
+      <div class="story-caption"><span class="live"></span>多公司 SaaS · 数据相互隔离</div>
+    </div>
+    <div class="login-card">
+      <div class="login-mark"><svg class="icon"><use href="#i-shield"/></svg></div>
+      <h2>管理员控制台</h2>
+      
+      <form id="admin-login-form">
+        <div class="field"><div class="input-wrap"><input id="f-admin-pw" aria-label="管理员登录口令" type="password" placeholder="请输入管理员口令" autocomplete="current-password" required><button type="button" class="password-toggle" id="btn-admin-password" aria-label="显示密码" aria-pressed="false"><svg class="icon"><use href="#i-eye"/></svg></button></div></div>
+        <div class="msg err" id="admin-login-msg" role="alert" hidden></div>
+        <button class="btn pri blk" id="btn-admin-login" type="submit">进入控制台</button>
+      </form>
+      <form id="admin-setup-form" hidden>
+        <div class="msg info" id="admin-setup-tip" style="margin-bottom:10px">首次使用：请设置管理员口令（至少 8 位）。设置后此表单自动关闭。</div>
+        <div class="field"><label for="f-setup-pw">新口令</label><div class="input-wrap"><input id="f-setup-pw" type="password" placeholder="至少 8 位" autocomplete="new-password"></div></div>
+        <div class="field"><label for="f-setup-pw2">再输一次</label><div class="input-wrap"><input id="f-setup-pw2" type="password" placeholder="再输一次" autocomplete="new-password"></div></div>
+        <div class="msg err" id="admin-setup-msg" role="alert" hidden></div>
+        <button class="btn pri blk" id="btn-admin-setup" type="submit">设置口令并进入</button>
+      </form>
+      <p class="hint" style="text-align:center;margin:14px 0 0">
+        还没有专属链接？<a href="/?apply=1" style="color:var(--brand);font-weight:600">申请开通</a>
+      </p>
+      <details class="login-security"><summary><svg class="icon"><use href="#i-shield"/></svg>这个页面是做什么的</summary><div class="hint">仅供平台管理员使用：开通公司、发放专属链接。各公司的业务数据相互隔离，本页面看不到任何一家公司的数据。公司员工请从本公司专属链接登录。</div></details>
+    </div>
+  </div>
+  <footer class="login-footer">金蝶经营门户 <span>·</span> 平台运营后台</footer>
+</section>
+
+<section class="login-wrap" id="screen-apply" hidden>
+  <header class="login-top">
+    <div class="brand-inline"><span class="brand-mark"><svg class="icon"><use href="#i-grid"/></svg></span>金蝶经营门户</div>
+    <div class="login-top-actions">
+      <button class="btn theme-toggle" type="button" data-theme-toggle aria-label="切换配色"><svg class="icon"><use href="#i-sun"/></svg></button>
+    </div>
+  </header>
+  <div class="apply-wrap">
+    <div class="apply-head">
+      <h1>申请开通</h1>
+    </div>
+    <form id="apply-form" class="apply-card">
+      <div class="field"><label for="ap-company">公司名称 <span class="req">必填</span></label>
+        <div class="input-wrap"><input id="ap-company" placeholder="如 某某科技有限公司" autocomplete="organization"></div></div>
+      <div class="field"><label for="ap-server">金蝶服务器地址 <span class="req">必填</span></label>
+        <div class="input-wrap"><input id="ap-server" type="url" placeholder="https://xxx.ik3cloud.com/" autocomplete="url"></div></div>
+      <div class="field"><label for="ap-wechat">微信号 <span class="req">必填</span></label>
+        <div class="input-wrap"><input id="ap-wechat" placeholder="开通通知会发到这里"></div></div>
+      <div class="field"><label for="ap-phone">手机号 <span class="opt">选填</span></label>
+        <div class="input-wrap"><input id="ap-phone" placeholder="方便电话联系，不填也可以" inputmode="numeric"></div></div>
+      <div class="field"><label for="ap-note">备注 <span class="opt">选填</span></label>
+        <div class="input-wrap"><input id="ap-note" placeholder="比如：想先看销售和费用两个看板"></div></div>
+      <div class="msg err" id="apply-msg" role="alert" hidden></div>
+      <button class="btn pri blk" id="btn-apply" type="submit">提交申请</button>
+    </form>
+    <div class="apply-card" id="apply-result" hidden></div>
+  </div>
+  <footer class="login-footer">金蝶经营门户 <span>·</span> 数据来自你自己的金蝶账套</footer>
+</section>
+
+<div class="app" id="screen-app" hidden>
+  <aside class="side">
+    <div class="brand"><span class="brand-mark"><svg class="icon"><use href="#i-grid"/></svg></span><div class="brand-copy">金蝶经营门户<small title="版本号，每次迭代 +0.0.1">v{{ version }}</small></div></div>
+    <div class="grp">经营概览</div>
+    <nav class="nav" id="nav" aria-label="主导航">
+      <a href="#expense" data-v="expense" class="on" aria-current="page"><svg class="icon"><use href="#i-wallet"/></svg><span class="nav-label">费用报销</span><svg class="icon nav-arrow"><use href="#i-arrow"/></svg></a>
+      <a href="#mgmt" data-v="mgmt"><svg class="icon"><use href="#i-chart"/></svg><span class="nav-label">财务健康与风险</span><svg class="icon nav-arrow"><use href="#i-arrow"/></svg></a>
+      <a href="#sales" data-v="sales"><svg class="icon"><use href="#i-send"/></svg><span class="nav-label">销售与回款表现</span><svg class="icon nav-arrow"><use href="#i-arrow"/></svg></a>
+      <a href="#cash" data-v="cash"><svg class="icon"><use href="#i-wallet"/></svg><span class="nav-label">现金流预测</span><svg class="icon nav-arrow"><use href="#i-arrow"/></svg></a>
+      <div class="grp">报销管理</div>
+      <a href="#apply" data-v="apply"><svg class="icon"><use href="#i-send"/></svg><span class="nav-label">申请单</span><svg class="icon nav-arrow"><use href="#i-arrow"/></svg></a>
+      <a href="#bills" data-v="bills"><svg class="icon"><use href="#i-wallet"/></svg><span class="nav-label">报销单</span><svg class="icon nav-arrow"><use href="#i-arrow"/></svg></a>
+      <a href="#pzcfg" data-v="pzcfg"><svg class="icon"><use href="#i-lock"/></svg><span class="nav-label">发票云配置</span><svg class="icon nav-arrow"><use href="#i-arrow"/></svg></a>
+      <div class="grp">数据管理</div>
+      <a href="#orgs" data-v="orgs"><svg class="icon"><use href="#i-org"/></svg><span class="nav-label">组织与权限</span><svg class="icon nav-arrow"><use href="#i-arrow"/></svg></a>
+      <a href="#guide" data-v="guide"><svg class="icon"><use href="#i-file"/></svg><span class="nav-label">使用说明</span><svg class="icon nav-arrow"><use href="#i-arrow"/></svg></a>
+    </nav>
+    <div class="me"><span class="user-avatar" id="user-avatar">U</span><div class="user-copy"><b id="me-user">—</b><span id="me-meta"></span></div><button class="btn-logout" id="btn-logout" aria-label="退出登录" title="退出登录"><svg class="icon"><use href="#i-out"/></svg></button></div>
+  </aside>
+  <main class="main">
+    <header class="bar">
+      <div class="bar-heading"><div class="eyebrow">WORKSPACE / <span id="breadcrumb">经营概览</span></div><h1 id="ttl">费用报销看板</h1></div>
+      <div class="toolbar">
+        <span class="stamp" id="org-label">组织加载中…</span>
+        <button class="btn" id="btn-orgs" aria-expanded="false" aria-controls="org-panel"><svg class="icon"><use href="#i-org"/></svg>筛选组织</button>
+        <span class="stamp" id="period-label" hidden>期间</span>
+        <select class="btn" id="sel-year" aria-label="会计年份" hidden></select><select class="btn" id="sel-month" aria-label="会计月份" hidden></select>
+        <button class="btn pri" id="btn-refresh"><svg class="icon"><use href="#i-refresh"/></svg><span class="refresh-label">刷新数据</span></button>
+        <button class="btn" id="btn-reset-view" type="button" title="重置当前看板视图">重置视图</button>
+        <button class="btn theme-toggle" type="button" data-theme-toggle aria-label="切换配色"><svg class="icon"><use href="#i-sun"/></svg></button>
+      </div>
+    </header>
+    <div class="wrap">
+      <div id="org-panel" hidden><div class="card"><div class="panel-head"><h3>筛选组织</h3><button class="btn" id="btn-orgs-close">完成</button></div><div class="chips" id="org-chips"></div><div class="hint" id="org-trace"></div><div class="hint" id="org-banner" hidden></div></div></div>
+      <div class="prog" id="prog" role="status" hidden><div class="track"><i id="prog-bar"></i></div><div class="txt" id="prog-txt">准备中…</div></div>
+      <div id="err-box" role="alert" hidden></div>
+      <section class="view on" id="v-expense" aria-label="费用报销看板"></section><section class="view" id="v-mgmt" aria-label="财务健康与风险"></section><section class="view" id="v-sales" aria-label="销售与回款表现"></section><section class="view" id="v-cash" aria-label="现金流预测"></section><section class="view" id="v-apply" aria-label="申请单"></section><section class="view" id="v-bills" aria-label="报销单"></section><section class="view" id="v-pzcfg" aria-label="发票云配置"></section><section class="view" id="v-orgs" aria-label="组织与权限"></section><section class="view" id="v-source" aria-label="数据源与口径"></section><section class="view" id="v-adm" aria-label="租户管理"></section><section class="view" id="v-guide" aria-label="使用说明">
+  <div class="guide-layout">
+    <div class="guide-hero"><div><span class="eyebrow">WORKSPACE GUIDE</span><h2>从看见数据，到采取行动。</h2><p>以本人金蝶权限为边界，连接费用、销售、财务风险与现金流。</p></div><span class="guide-version">使用说明 · v{{ version }}</span></div>
+    <div class="guide-grid">
+      <article class="guide-card"><span class="guide-index">01 / START</span><h3>数据如何加载与联动</h3><p>登录后依次加载费用报销、财务健康、销售与回款、现金流四个首页，再在后台补充财务明细。切换页签不会重复提取。</p><p>右上角「筛选组织」统一联动四个看板。组织切换、图表交互与配色切换仅使用本次已加载数据；清空组织后显示空白范围。</p><p>点击「刷新数据」才重新提取当前看板的全部有权组织数据。悬停刷新按钮可查看更新时间。服务器自动定时提取已关闭。</p></article>
+      <article class="guide-card"><span class="guide-index">02 / EXPLORE</span><h3>用图表探索，不重复取数</h3><p>趋势图上滚轮缩小或放大日期窗口，Shift + 滚轮平移。键盘聚焦图表后，+ / − 缩放、左右键平移。缩放仅改变可视范围。</p><p>悬停或键盘聚焦标记查看精确值，点击图例隐藏系列。点击组织图形会同步右上角的组织选择。客户、费用类型、核对主题可联动已有维度。</p><p>每个看板顶部一行是「分析指标」「排行维度」和维度切换按钮。切换维度后，图表与明细整屏展示该维度的排行和分月走势，对象顺序与贡献排行一致。</p><p>工作表支持搜索、排序、分页与导出。费用类型只有汇总时不虚构明细；物料与月份缺少交叉维度时分别展示。明细 Top 上限见各表尾。</p></article>
+      <article class="guide-card"><span class="guide-index">03 / YOUR ROLE</span><h3>不同岗位，从不同问题出发</h3><dl><dt>CEO / CFO</dt><dd>先看资金谷值、客户集中度与 CCC，再定位组织差异、回款与票据风险。</dd><dt>会计</dt><dd>从核销、暂估、科目余额与未回票工作台下钻，核对单据与期间。</dd><dt>销售人员</dt><dd>看本人有权范围的出库、开票、结算、客户贡献与未结单据，安排回款跟进。</dd></dl><p>岗位名称不授予权限。数据由本人金蝶账号提供，不同账号与会话的缓存隔离；不可用的数据源不阻塞其他来源。</p></article>
+      <article class="guide-card"><span class="guide-index">04 / READ THE SIGNAL</span><h3>读懂缺失与风险</h3><p>「—」表示未取得可靠数值；「后台待加载」表示尚未轮到该来源；采集失败与权限错误会保留提示。已提取的空结果也可能是权限或业务范围限制，不能据此认定没有风险。</p><p>资金头寸缺失时不判断“安全”或“未穿底”。预测为按账龄与历史结算行为加权的参考，另含新单趋势及周期付款；它不构成收付款承诺。</p><p>现金流的期望流出 = 未结应付期望 + 预计新增应付 + 周期性付款（工资/社保/公积金），与 12 周曲线逐周变化同口径。「组织期望流入流出构成」表按组织拆开这三项，可直接看出某条曲线为何向下。</p><p>现金流预测与会计核对口径不同。先看数据源覆盖、时间范围和原始单据，再进行决策。</p></article>
+      <article class="guide-card guide-wide"><span class="guide-index">05 / WORKING CAPITAL</span><h3>CCC：把经营效率换算成天数</h3><div class="guide-formula"><b>DSO</b><span>+</span><b>DIO</b><span>−</span><b>DPO</b><span>=</span><b>CCC</b></div><p>营运资金效率直接读取本人有权访问的金蝶财报：资产负债表的应收账款、存货、应付账款，利润表的营业收入、营业成本。默认展示最近有有效数据的完整自然月，配最近 12 个完整月趋势与本年累计参照；本月未结束时不作为主指标。财报接口沿用 kingdee-data-exporter 的取数方式，不以科目发生额或凭证推算替代。</p><p>DSO = 平均应收账款 ÷ 营业收入 × 天数；DIO = 平均存货 ÷ 营业成本 × 天数；DPO = 平均应付账款 ÷ 营业成本 × 天数。月度平均余额取「上月财报期末 + 本月期末」÷ 2，1 月用财报年初余额；分母用利润表本期金额，天数取整月自然日。累计平均余额取「年初 + 当月期末」÷ 2，分母直接使用利润表本年金额，乘年初至该月末自然日；累计天数不是各月周转天数的平均。</p><p>报表模板为 BBMB0001（月报、人民币、元），程序核对每张表的月份、编制单位、列名及金额单位。空白、脱敏、缺行、负余额、分母非正或上月余额缺失时，对应指标显示「—」。有共同完整组织时四项采用同一集合，按余额与收入 / 成本合计后计算；其余组织在覆盖明细中说明。趋势提示各月覆盖，环比只比较相同覆盖组织；组织切换与图例、滚轮缩放均只作用于已经加载的数据。</p><p>DPO 以营业成本近似采购额，DSO 使用财报应收账款净额与营业收入，未校正增值税，也未包含应收票据；多组织未合并抵销。这是管理参考，不能替代采用日均余额、真实赊销与采购额的正式分析。不同组织的财报权限及编制进度不同，完整自然月不代表已经结账。</p></article>
+      <article class="guide-card"><span class="guide-index">06 / INVOICE CLOUD</span><h3>配置保存与主体管理</h3><p>发票云授权按公司保存，上传时按单据组织选择开票主体。购方名称、税号、client_id、client_secret 由公司管理员维护；尚无管理员时，首次成功保存者成为管理员。</p><p>保存组织表只合并已填写的行，不删除其他组织或当前账号未发现的主体。密钥留空代表保留。已保存组织即使本次未发现仍会列出，无组织映射的主体单独展示。</p><p>多人同时编辑时，旧页面不能覆盖新版本；出现配置冲突请重新打开页面。删除主体必须使用明确的删除操作，清空输入框不会删除授权。连接失败先核对授权值，再使用「测试连接」检查签名、授权或 IP 放行。</p></article>
+      <article class="guide-card"><span class="guide-index">07 / REIMBURSEMENT</span><h3>报销办理的五步</h3><ol><li>在申请单中选择已审核未关闭单据，下推生成报销草稿。</li><li>上传一张或多张发票；识别成功后建立收票关联，其余材料作为附件。</li><li>核对发票与报销金额，修改后保存。</li><li>体检通过后提交审批。</li><li>在报销单列表跟进状态；已提交或已审核单据只读。</li></ol><p>购方税号不匹配、跨组织挂票会被拦截。草稿可删除；已提交的单据需先按金蝶流程撤回。实际可用动作仍受金蝶权限和平台开关约束。</p></article>
+      <article class="guide-card guide-wide"><span class="guide-index">08 / DEFINITIONS</span><h3>指标口径速查</h3><div class="guide-table-scroll"><table class="guide-table"><thead><tr><th>指标</th><th>口径与范围</th></tr></thead><tbody>
+        <tr><td>销售、开票与回款</td><td>销售出库开票跟踪表：本年累计与本月。未结算 = 应收金额 − 已收款结算金额；开票率、结算率均以应收金额为分母。保留退货或超结算造成的负差额。</td></tr>
+        <tr><td>费用资金占用</td><td>借款未还 = 借款 − 已报销 − 已还款 − 核销；已申请未报销只计未关闭申请；报销未付款取单据体未付款金额。</td></tr>
+        <tr><td>头寸与科目</td><td>头寸来自资金头寸表，按银行账户去重；科目余额来自叶子科目。只在同组织交叉验证，不以不同范围的合计直接相减。</td></tr>
+        <tr><td>现金流</td><td>往来未结取 FNORECEIVEAMOUNT，按基准日滚动 12 周，概率冻结于取数日；剔除名称匹配的组织间往来。周期性付款作为流出扣减，每个组织各自预测后汇总。</td></tr>
+        <tr><td>数据与凭据</td><td>看板保留在服务器和当前浏览器会话内存，不在浏览器持久保存。登录凭据依公司设置在内存保存或加密落盘；配置密钥加密保存在运行目录。操作日志记录必要的审计信息。</td></tr>
+      </tbody></table></div></article>
+    </div>
+  </div>
+</section>
+    </div>
+  </main>
+</div>
+<script src="{{ url_for('static', filename='scope.js') }}?v={{ version }}"></script>
+<script src="{{ url_for('static', filename='analytics.js') }}?v={{ version }}"></script>
+<script src="{{ url_for('static', filename='portal.js') }}?v={{ version }}"></script>
+</body>
+</html>

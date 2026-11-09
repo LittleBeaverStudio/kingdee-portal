@@ -1,0 +1,55 @@
+{
+  "name": "@local/kingdee-portal",
+  "version": "1.0.2",
+  "type": "module",
+  "description": "DSH bundle that opens the local Kingdee business portal in the sidebar, using your own account and permissions.",
+  "homepage": "https://github.com/LittleBeaverStudio/kingdee-portal#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/LittleBeaverStudio/kingdee-portal.git"
+  },
+  "keywords": ["dsh", "dsh-plugin", "kingdee", "portal", "local-first", "finance"],
+  "exports": {
+    ".": "./dsh-plugin/index.js",
+    "./client": "./dsh-plugin/client.js",
+    "./icon": "./dsh-plugin/icon.svg",
+    "./cordis.patch.yml": "./dsh-plugin/cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "app.py",
+    "financial_health.py",
+    "financial_reports.py",
+    "invoice_config.py",
+    "kd_client.py",
+    "metrics_cashflow.py",
+    "metrics_expense.py",
+    "metrics_mgmt.py",
+    "metrics_mgmt_full.py",
+    "metrics_sales.py",
+    "portal_actions.py",
+    "store.py",
+    "portal_config.example.json",
+    "requirements.txt",
+    "requirements-dev.txt",
+    "LICENSE",
+    "README.md",
+    "SECURITY.md",
+    "scripts/",
+    "static/",
+    "templates/",
+    "vendor/",
+    "dsh-plugin/"
+  ],
+  "dsh": {
+    "bundle": { "patch": "./dsh-plugin/cordis.patch.yml" },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-sidebar-right",
+        "@deepseek-ai/dsh-client-locale"
+      ]
+    }
+  }
+}

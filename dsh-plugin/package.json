@@ -1,0 +1,33 @@
+{
+  "name": "@local/kingdee-portal",
+  "version": "1.0.2",
+  "type": "module",
+  "description": "Connect to a local Kingdee business workspace using your own account and permissions.",
+  "homepage": "https://github.com/LittleBeaverStudio/kingdee-portal#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/LittleBeaverStudio/kingdee-portal.git",
+    "directory": "dsh-plugin"
+  },
+  "keywords": ["dsh", "kingdee", "portal", "local-first", "finance"],
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": ["index.js", "client.js", "cordis.patch.yml", "locale/*.json", "icon.svg"],
+  "dsh": {
+    "bundle": { "patch": "./cordis.patch.yml" },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-sidebar-right",
+        "@deepseek-ai/dsh-client-locale"
+      ]
+    }
+  }
+}
