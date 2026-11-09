@@ -18,8 +18,9 @@ TEXT_EXT = {
 # Patterns are assembled from fragments so this checker never contains the
 # literal identifiers it looks for, and the checker skips its own file.
 WORDS = [
-    "北京" + "埃诺登", "北京" + "卓美", "资阳" + "卓美", "广州" + "景安宏悦",
-    "景安" + "宏悦", "埃" + "诺登", "卓" + "美",
+    "北" + "京" + "埃" + "诺登", "北" + "京" + "卓" + "美", "资" + "阳" + "卓" + "美",
+    "广" + "州" + "景" + "安" + "宏" + "悦", "景" + "安" + "宏" + "悦",
+    "埃" + "诺登", "卓" + "美",
     "zar" + "wdw", "w7s" + "uta", "zyzm." + "ik3cloud.com",
     "fQm0" + "PPACPbh2F9IsNQgX",
 ]
