@@ -1,7 +1,7 @@
 # 金蝶经营门户 · DSH 本地插件
 
 [![License](https://img.shields.io/badge/License-No--Resale%201.0-yellow.svg)](LICENSE)
-[![DSH Plugin](https://img.shields.io/badge/DSH-plugin%20v1.0.2-blue.svg)](dsh-plugin/)
+[![DSH Plugin](https://img.shields.io/badge/DSH-plugin%20v1.0.3-blue.svg)](dsh-plugin/)
 [![Local First](https://img.shields.io/badge/Local--First-green.svg)](PRIVACY.md)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-brightgreen.svg)](https://www.python.org/)
 
@@ -63,6 +63,23 @@ dsh plugin --profile desktop add "link:D:/kingdee-portal/dsh-plugin"
 
 **实验性**：仓库根 `package.json` 也支持 `dsh plugin --profile desktop add github:LittleBeaverStudio/kingdee-portal`。
 该方式尚未在干净机器上验证；若加载异常，请改用上面的本地 link 方式。
+
+## 🧪 DSH 版本兼容
+
+已在 **DSH 桌面版（Windows）** 验证；侧栏注入依赖 `@deepseek-ai/dsh-client-ui-sidebar-right`
+与 `@deepseek-ai/dsh-client-locale`（见 `dsh-plugin/cordis.patch.yml`）。若你的 DSH 版本过旧、
+缺少上述内置包，`dsh plugin add` 可能报缺依赖——请升级 DSH 到包含这两个包的版本后再装。
+
+## 🔄 更新插件
+
+```bash
+cd <clone 目录>
+git pull
+dsh plugin --profile desktop update "@littlebeaverstudio/kingdee-portal"
+```
+
+若用 `github:` 方式安装，重新执行
+`dsh plugin --profile desktop add github:LittleBeaverStudio/kingdee-portal` 即可覆盖。更新后重启 DSH。
 
 ## 不装 DSH 也能用
 
