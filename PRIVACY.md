@@ -5,7 +5,7 @@
 [![In-Memory Credentials](https://img.shields.io/badge/🔑-凭据不落盘-orange.svg)](#-我们处理哪些数据)
 [![License](https://img.shields.io/badge/License-No--Resale%201.0-yellow.svg)](LICENSE)
 
-> 📅 生效日期：**2026-11-09** · 🏷️ 适用版本：插件 v1.0.2 / 门户 v1.5.8
+> 📅 生效日期：**2026-11-12** · 🏷️ 适用版本：插件 v1.0.3 / 门户 v1.5.8
 > 📦 适用产品：[LittleBeaverStudio/kingdee-portal](https://github.com/LittleBeaverStudio/kingdee-portal)
 
 ---
@@ -78,6 +78,21 @@
 
 ---
 
+## 🔍 自查清单
+
+想确认本地没有残留敏感数据，逐项核对：
+
+- [ ] 运行库目录为空或已删除：`.portal-state-dsh/` 与 `~/.kingdee-portal/`
+- [ ] 浏览器站点数据已清除（开发者工具 → Application → Storage → Clear site data）
+- [ ] 没有把 `portal_config.json`（含服务器地址/账套）提交进任何仓库
+- [ ] 没有在公开 Issue / 论坛粘贴真实服务器地址、账号、票据或密钥
+- [ ] 发票云授权不再需要时已从本机删除（见上节）
+
+插件不向作者服务器发送任何请求；若你怀疑被篡改，可对照
+[仓库源码](https://github.com/LittleBeaverStudio/kingdee-portal) 重新安装。
+
+---
+
 ## 🧹 如何彻底删除我的数据
 
 ```bash
@@ -120,6 +135,7 @@ dsh plugin --profile desktop remove @littlebeaverstudio/kingdee-portal
 | 📅 日期 | 🏷️ 版本 | 📌 说明 |
 |---|---|---|
 | 2026-11-09 | v1.0.2 | 首次发布，配套仓库公开版 |
+| 2026-11-12 | v1.0.3 | 包名 scope 改为 @littlebeaverstudio；补充自查清单与架构文档 |
 
 政策更新会随仓库提交同步，生效日期以本页顶部为准。
 
