@@ -1,6 +1,6 @@
 - insert:
     - id: kingdee-portal
-      name: '@local/kingdee-portal'
+      name: '@littlebeaverstudio/kingdee-portal'
       config:
         port: 8985
         autoStart: true

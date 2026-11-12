@@ -1,5 +1,5 @@
 window.__ModuleLoader__.load({
-  id: "@local/kingdee-portal",
+  id: "@littlebeaverstudio/kingdee-portal",
   factory(require) {
     const React = require("react");
     const h = React.createElement;
@@ -205,7 +205,7 @@ window.__ModuleLoader__.load({
         ctx.effect(
           () =>
             ctx.sidebarRightTabs.register({
-              id: "@local/kingdee-portal",
+              id: "@littlebeaverstudio/kingdee-portal",
               kind: KIND,
               multiple: false,
               // Keep the frame mounted across tab switches: the portal keeps its page
@@ -232,7 +232,7 @@ window.__ModuleLoader__.load({
               ctx.slots.register(
                 {
                   name: "sidebar.right.pane.tab",
-                  key: "@local/kingdee-portal",
+                  key: "@littlebeaverstudio/kingdee-portal",
                   locale: NS,
                 },
                 PortalBody,
@@ -247,7 +247,7 @@ window.__ModuleLoader__.load({
               ctx.slots.register(
                 {
                   name: "sidebar.right.pane.tab.title",
-                  key: "@local/kingdee-portal",
+                  key: "@littlebeaverstudio/kingdee-portal",
                   locale: NS,
                 },
                 PortalTitle,

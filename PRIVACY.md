@@ -91,7 +91,7 @@ rm -rf ~/.kingdee-portal/          # 独立运行时的默认位置
 #    这将移除 sessionStorage 里的会话令牌与 localStorage 里的表单便利项
 
 # 4️⃣ 如需移除插件
-dsh plugin --profile desktop remove @local/kingdee-portal
+dsh plugin --profile desktop remove @littlebeaverstudio/kingdee-portal
 ```
 
 删除运行库后，本机保存的发票云授权与配置一并消失，不会残留在云端。

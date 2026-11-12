@@ -46,17 +46,17 @@ dsh plugin --profile desktop add "link:D:/kingdee-portal/dsh-plugin"
 ```json
 {
   "dependencies": {
-    "@local/kingdee-portal": "link:D:/kingdee-portal/dsh-plugin"
+    "@littlebeaverstudio/kingdee-portal": "link:D:/kingdee-portal/dsh-plugin"
   },
   "dsh": {
     "profile": {
-      "bundles": ["@deepseek-ai/dsh-base", "@local/kingdee-portal"]
+      "bundles": ["@deepseek-ai/dsh-base", "@littlebeaverstudio/kingdee-portal"]
     }
   }
 }
 ```
 
-`bundles` 数组保留原有条目，只需把 `@local/kingdee-portal` 追加进去。然后重启 DSH，
+`bundles` 数组保留原有条目，只需把 `@littlebeaverstudio/kingdee-portal` 追加进去。然后重启 DSH，
 左侧导航出现「金蝶门户」；首次点击会由插件自动启动本地服务（约 1–3 秒）。
 端口 8985 同时写在 `dsh-plugin/client.js`、`dsh-plugin/cordis.patch.yml`、`dsh-plugin/index.js`，
 改端口需三处同步，并在 profile 的 patch 行里设置 `port`。
