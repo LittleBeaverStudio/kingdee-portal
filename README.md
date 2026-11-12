@@ -61,6 +61,9 @@ dsh plugin --profile desktop add "link:D:/kingdee-portal/dsh-plugin"
 端口 8985 同时写在 `dsh-plugin/client.js`、`dsh-plugin/cordis.patch.yml`、`dsh-plugin/index.js`，
 改端口需三处同步，并在 profile 的 patch 行里设置 `port`。
 
+> 🪟 **侧栏嵌入**：以 DSH 本地插件方式运行时（`PORTAL_LOCAL_MODE=1`），门户会自动放开 iframe 嵌入，
+> 侧栏可直接渲染，无需手动改配置。若改用独立浏览器标签打开，仍受 `X-Frame-Options` 保护。
+
 **实验性**：仓库根 `package.json` 也支持 `dsh plugin --profile desktop add github:LittleBeaverStudio/kingdee-portal`。
 该方式尚未在干净机器上验证；若加载异常，请改用上面的本地 link 方式。
 

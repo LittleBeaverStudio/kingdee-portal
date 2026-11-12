@@ -74,9 +74,11 @@ DEFAULT_CONFIG = {
     "audit_log": "portal_audit.log",  # 写操作审计日志（JSONL）
     # ── DSH 插件内嵌（iframe 嵌入）──────────────────────────────────
     # 本门户只监听 127.0.0.1，不是公网服务。设为 True 后去掉
-    # X-Frame-Options: DENY 与 frame-ancestors 'none'，允许本地任意页面
-    # （如 DSH 的 Web GUI 动态端口）用 iframe 嵌入完整门户界面。
-    # 公网发布的副本保持默认 False，安全基线不变。
+    # X-Frame-Options: DENY 与 frame-ancestors 'none'，允许本地页面
+    # （DSH 桌面端 dsh-app: 源、Web GUI 动态端口）用 iframe 嵌入门户界面。
+    # 默认 False（安全基线）；但 LOCAL_MODE（PORTAL_LOCAL_MODE=1，即 DSH 本地插件）
+    # 下会在 load_config 之后自动置为 True，保证「克隆即装即用」；
+    # 若你在 portal_config.json 显式写 false，仍会被尊重。
     "allow_local_embedding": False,
 }
 
@@ -99,6 +101,22 @@ def load_config():
 CFG = load_config()
 # DSH 本地版与原公网租户模式分离：仅插件启动时启用。
 LOCAL_MODE = os.environ.get("PORTAL_LOCAL_MODE") == "1"
+if LOCAL_MODE:
+    # As a DSH local plugin the portal is always shown inside the sidebar
+    # iframe, so frame-ancestors must be relaxed for it to render. The portal
+    # still listens only on 127.0.0.1. An explicit ``allow_local_embedding:
+    # false`` in portal_config.json is still honored (e.g. when you prefer to
+    # open it in a standalone browser tab instead of the sidebar).
+    explicit_false = False
+    if os.path.exists(CONFIG_PATH):
+        try:
+            explicit_false = not bool(
+                json.load(open(CONFIG_PATH, encoding="utf-8")).get(
+                    "allow_local_embedding", True))
+        except Exception:
+            explicit_false = False
+    if not explicit_false:
+        CFG["allow_local_embedding"] = True
 # 发布到云端沙箱时，平台会注入 PORT，并要求服务绑定 0.0.0.0（而不是只监听本机）。
 # 本地跑（没有 PORT）时行为完全不变：只监听 127.0.0.1。
 if os.environ.get("PORT") and not LOCAL_MODE:
@@ -304,9 +322,9 @@ def _add_security_headers(resp: Response) -> Response:
     resp.headers["Referrer-Policy"] = "no-referrer"
     resp.headers["Cache-Control"] = "no-store"
     # ★ DSH 插件内嵌：默认安全基线（拒绝任何 iframe 嵌入）；
-    #   portal_config.json 设 "allow_local_embedding": true 后，
-    #   本服务只监听 127.0.0.1，放开 frame-ancestors 允许本地页面（含 DSH Web GUI
-    #   的任意动态端口）嵌入完整门户界面。
+    #   LOCAL_MODE（PORTAL_LOCAL_MODE=1）下自动放开 frame-ancestors（见 load_config
+    #   之后的处理），本服务只监听 127.0.0.1，允许本地页面（DSH 桌面端 dsh-app:
+    #   源、Web GUI 动态端口）嵌入；显式 allow_local_embedding:false 仍拒绝。
     if LOCAL_MODE and CFG.get("allow_local_embedding"):
         # Desktop is served from the dedicated dsh-app scheme. Web's exact
         # listener origin is supplied by the Host, never from request headers.
