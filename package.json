@@ -43,7 +43,7 @@
     "dsh-plugin/"
   ],
   "dsh": {
-    "bundle": { "patch": "./dsh-plugin/cordis.patch.yml" },
+    "bundle": { "patch": "./cordis.patch.yml" },
     "client": {
       "platform": "web",
       "immediately": true,
