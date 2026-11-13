@@ -1,0 +1,6 @@
+url: https://github.com/LittleBeaverStudio/kingdee-portal
+name: LittleBeaverStudio/kingdee-portal
+category: web-tools
+description:
+  en: 'Local Kingdee Cloud (金蝶云星空) business portal for DeepSeek Harness: open the operations dashboard in the sidebar with your own Kingdee account; data stays on your machine. Requires Python 3.10+ with Flask and requests, plus a local clone linked into the profile. Verified on Windows with DSH Desktop only.'
+  zh: '本地金蝶云星空经营门户 DSH 插件：用本人金蝶账号在侧栏打开经营看板，数据不出本机。需 Python 3.10+ 与 Flask、requests，并把本仓库克隆到本地后 link 进 profile。仅在 Windows + DSH 桌面版验证过。'
