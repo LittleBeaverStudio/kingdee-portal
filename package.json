@@ -17,6 +17,7 @@
     "./package.json": "./package.json"
   },
   "files": [
+    "cordis.patch.yml",
     "app.py",
     "financial_health.py",
     "financial_reports.py",
