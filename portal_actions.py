@@ -354,8 +354,8 @@ def list_pushable(configured: str = "", orgs=None, staff_name: str = "",
 
 
 # ────────────────────────── 写：下推 ──────────────────────────
-def push(configured: str, bill_no_or_fid: str, is_travel: bool = False) -> dict:
-    """下推生成报销单。返回 {fid, bill_no, status, amount}。"""
+def push(configured: str, bill_no_or_fid: str, is_travel: bool = False, source_fid: str = "") -> dict:
+    """下推生成报销单。返回 {fid, bill_no, warning}。"""
     kd, rl, _skill = get_client(configured)
     src_form = "ER_ExpenseRequest_Travel" if is_travel else "ER_ExpenseRequest"
     tgt_form = "ER_ExpReimbursement_Travel" if is_travel else FORM_EXPENSE
@@ -363,18 +363,61 @@ def push(configured: str, bill_no_or_fid: str, is_travel: bool = False) -> dict:
         "Ids": "", "Numbers": [str(bill_no_or_fid)], "RuleId": "",
         "TargetFormId": tgt_form, "IsEnableDefaultRule": "true",
         "IsDraftWhenSaveFail": "true", "CustomParams": {}}, ensure_ascii=False)}
-    r = kd._svc("Push", src_form, json.loads(payload["data"]))     # noqa: SLF001
+    # 下推是非幂等写操作：超时后金蝶可能已建单，不能沿用 _post 的自动重试。
+    try:
+        r = kd._post(rl.KSVC_SUFFIX + "Push.common.kdsvc", payload, retries=1)  # noqa: SLF001
+    except (Exception, SystemExit) as exc:
+        raise RuntimeError("下推结果未确认，请先到报销单列表或金蝶核对是否已生成，确认后再操作。"
+                           "接口信息：%s" % str(exc)[:200]) from exc
+    if not isinstance(r, dict) or not isinstance(r.get("Result"), dict):
+        raise RuntimeError("下推结果未确认，请先到报销单列表或金蝶核对是否已生成，确认后再操作。")
     res = (r.get("Result") or {}).get("ResponseStatus") or {}
     if not res.get("IsSuccess"):
         errs = res.get("Errors") or []
-        raise RuntimeError("下推失败：%s" % json.dumps(errs[:2], ensure_ascii=False)[:400])
+        msg = json.dumps(errs[:2], ensure_ascii=False)[:400]
+        raise RuntimeError("金蝶返回下推失败：%s。请先核对报销单列表，确认没有生成单据后再操作。" % msg)
     succ = res.get("SuccessEntitys") or []
     if not succ:
-        raise RuntimeError("下推未返回新单（SuccessEntitys 为空）")
+        raise RuntimeError("下推结果未确认（金蝶未返回新单 ID），请先核对报销单列表。")
     fid = str(succ[0].get("Id") or "")
-    info = get_bill(configured, fid)
-    return {"fid": fid, "bill_no": info.get("bill_no", ""),
-            "status": info.get("status", ""), "amount": info.get("amount", 0)}
+    if not fid:
+        raise RuntimeError("下推结果未确认（金蝶未返回新单 ID），请先核对报销单列表。")
+    # 建单已经成功：补充往来单位失败时只能提示，绝不能再报下推失败。
+    result = {"fid": fid, "bill_no": str(succ[0].get("Number") or "")}
+    result["warning"] = _inherit_contact(kd, src_form, tgt_form, str(source_fid or ""),
+                                         str(bill_no_or_fid), fid)
+    return result
+
+
+def _inherit_contact(kd, src_form: str, tgt_form: str, source_fid: str,
+                     source_number: str, target_fid: str) -> str:
+    """只在目标为空且来源明确时沿用申请单往来单位；失败不改变建单结果。"""
+    try:
+        target = kd.view(tgt_form, target_fid)
+        if target.get("CONTACTUNIT"):
+            return ""
+        if not source_fid:
+            return "报销单已生成，但未能确认申请单往来单位，请在提交前核对。"
+        source = kd.view(src_form, source_fid)
+        if str(source.get("BillNo") or "").strip() != source_number:
+            return "报销单已生成，但申请单信息不匹配，请在提交前核对往来单位。"
+        contact = source.get("TOCONTACTUNIT") or source.get("ContactUnit") or source.get("CONTACTUNIT") or {}
+        contact_type = source.get("TOCONTACTUNITTYPE") or source.get("ContactUnitType") or source.get("CONTACTUNITTYPE")
+        number = str(contact.get("Number") or "").strip() if isinstance(contact, dict) else ""
+        if not number or not isinstance(contact_type, str) or not contact_type.strip():
+            return "报销单已生成，但申请单没有可识别的往来单位，请在提交前核对。"
+        model = {"FID": target_fid, "FCONTACTUNITTYPE": contact_type,
+                 "FCONTACTUNIT": {"FNumber": number}}
+        ok, _ = kd.save(tgt_form, model, need_update=["FCONTACTUNIT", "FCONTACTUNITTYPE"],
+                        retries=1, validate_flag=False)
+        if ok:
+            reread = kd.view(tgt_form, target_fid)
+            saved = reread.get("CONTACTUNIT") or {}
+            if isinstance(saved, dict) and str(saved.get("Number") or "").strip() == number:
+                return ""
+        return "报销单已生成，但未能确认往来单位已带入，请在提交前核对。"
+    except (Exception, SystemExit):
+        return "报销单已生成，但读取或带入往来单位失败，请在提交前核对。"
 
 
 # ────────────────────────── 读：报销单详情 ──────────────────────────

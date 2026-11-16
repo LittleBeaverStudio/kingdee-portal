@@ -1306,36 +1306,53 @@
 
   /* ---------------- ① 下推弹窗 ---------------- */
   var PD = null;
+  var pushInFlight = {};
 
   function rbPushDialog(x, travel) {
+    var key = (travel ? "travel:" : "expense:") + x.bill_no;
+    if (pushInFlight[key]) return;
+    pushInFlight[key] = true;
     PD = { item: x, travel: !!travel, fid: "", bill: null, msgs: [], busy: false, m: null };
+    var current = PD;
     PD.m = openModal("下推报销单 · " + (x.bill_no || ""),
       '<div class="hint">正在金蝶生成草稿报销单…</div>',
-      { onClose: function () { PD = null; } });
-    api("/api/reimburse/push", { bill_no: x.bill_no, is_travel: !!travel }).then(function (r) {
-      if (!PD) return;
+      { onClose: function () { if (PD === current) PD = null; } });
+    api("/api/reimburse/push", { bill_no: x.bill_no, source_fid: x.fid || "", is_travel: !!travel }).then(function (r) {
+      if (PD !== current) return;
       if (!r.ok) {
-        PD.m.body.innerHTML = errLine(r.error) +
+        PD.m.body.innerHTML = errLine(r.error) + '<div class="banner warn">请先到报销单列表或金蝶核对是否已生成，确认后再下推。</div>' +
           '<div class="row-actions"><button class="btn" id="pd-close">关闭</button></div>';
         var c = document.getElementById("pd-close");
         if (c) c.addEventListener("click", PD.m.close);
         return;
       }
       PD.fid = String((r.result || {}).fid || "");
+      if (r.result.warning) PD.msgs.push('<div class="banner warn">' + esc(r.result.warning) + '</div>');
       pdReload();
     }).catch(function () {
-      if (PD) PD.m.body.innerHTML = '<div class="banner err">下推失败：连接异常</div>';
+      if (PD === current) PD.m.body.innerHTML = '<div class="banner err">连接异常，下推结果未确认。请先到报销单列表或金蝶核对是否已生成，确认后再下推。</div>';
+    }).finally(function () {
+      delete pushInFlight[key];
     });
   }
 
   function pdReload() {
     if (!PD) return;
+    var current = PD;
     api("/api/reimburse/bill/" + PD.fid + (PD.travel ? "?travel=1" : ""), null, "GET")
       .then(function (r) {
-        if (!PD) return;
-        if (r.ok) PD.bill = r.bill;
-        pdRender();
+        if (PD !== current) return;
+        if (r.ok) { PD.bill = r.bill; pdRender(); return; }
+        showReadError(r.error);
+      }).catch(function () {
+        if (PD === current) showReadError({ message: "连接异常" });
       });
+    function showReadError(error) {
+      PD.m.body.innerHTML = '<div class="banner warn">报销单已生成（FID ' + esc(PD.fid) +
+        '），但读取详情失败。请勿重新下推，可重试读取或从报销单列表打开。</div>' +
+        errLine(error) + '<div class="row-actions"><button class="btn" id="pd-read-retry">重试读取</button></div>';
+      document.getElementById("pd-read-retry").addEventListener("click", pdReload);
+    }
   }
 
   function pdRender() {

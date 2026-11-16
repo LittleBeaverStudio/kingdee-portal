@@ -5,7 +5,7 @@
 [![In-Memory Credentials](https://img.shields.io/badge/🔑-凭据不落盘-orange.svg)](#-我们处理哪些数据)
 [![License](https://img.shields.io/badge/License-No--Resale%201.0-yellow.svg)](LICENSE)
 
-> 📅 生效日期：**2026-11-12** · 🏷️ 适用版本：插件 v1.0.3 / 门户 v1.5.8
+> 📅 生效日期：**2026-11-17** · 🏷️ 适用版本：插件 v1.0.4 / 门户 v1.5.8
 > 📦 适用产品：[LittleBeaverStudio/kingdee-portal](https://github.com/LittleBeaverStudio/kingdee-portal)
 
 ---
@@ -136,6 +136,7 @@ dsh plugin --profile desktop remove @littlebeaverstudio/kingdee-portal
 |---|---|---|
 | 2026-11-09 | v1.0.2 | 首次发布，配套仓库公开版 |
 | 2026-11-12 | v1.0.3 | 包名 scope 改为 @littlebeaverstudio；补充自查清单与架构文档 |
+| 2026-11-17 | v1.0.4 | 下推改为非幂等安全调用并带回往来单位；数据处理范围无变化 |
 
 政策更新会随仓库提交同步，生效日期以本页顶部为准。
 

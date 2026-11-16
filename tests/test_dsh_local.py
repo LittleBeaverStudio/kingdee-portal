@@ -173,7 +173,7 @@ class LocalModeTests(unittest.TestCase):
         self.assertTrue(result['ok'], result)
         headers['X-Portal-Sid'] = result['sid']
         seen = []
-        def capture(_skill, bill, travel):
+        def capture(_skill, bill, travel, source_fid=""):
             seen.append(dict(app.portal_actions.current_credentials()))
             self.assertEqual(bill, 'TEST-1')
             return {'fid': 'mock-only'}
@@ -199,7 +199,7 @@ class LocalModeTests(unittest.TestCase):
         self.assertTrue(result['ok'], result)
         headers['X-Portal-Sid'] = result['sid']
         seen = []
-        def deny(_skill, _bill, _travel):
+        def deny(_skill, _bill, _travel, _source_fid=""):
             seen.append(app.portal_actions.current_credentials()['username'])
             raise app.KdError('金蝶拒绝：没有权限', '权限')
         with patch.object(app.portal_actions, 'find_skill_dir', return_value='helpers'), \

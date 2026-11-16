@@ -1613,12 +1613,13 @@ def api_reimburse_push():
         travel = bool(body.get("is_travel"))
         if not bill_no:
             return _err("参数", "缺少申请单单号")
-        res = portal_actions.push(str(CFG.get("expense_skill_dir") or ""), bill_no, travel)
+        res = portal_actions.push(str(CFG.get("expense_skill_dir") or ""), bill_no, travel,
+                                  str(body.get("source_fid") or "").strip())
         _audit("报销-下推", {"src": bill_no, "new_fid": res.get("fid")}, actor)
         return jsonify({"ok": True, "result": res}), 200
     except KdError as exc:
         return jsonify({"ok": False, "error": exc.to_dict()}), 200
-    except Exception as exc:                              # noqa: BLE001
+    except BaseException as exc:                          # noqa: BLE001  SystemExit 也要接
         _audit("报销-下推", {"error": repr(exc)[:200]}, actor)
         return _err("下推", repr(exc)[:300])
 

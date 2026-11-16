@@ -1,7 +1,7 @@
 # 金蝶经营门户 · DSH 本地插件
 
 [![License](https://img.shields.io/badge/License-No--Resale%201.0-yellow.svg)](LICENSE)
-[![DSH Plugin](https://img.shields.io/badge/DSH-plugin%20v1.0.3-blue.svg)](dsh-plugin/)
+[![DSH Plugin](https://img.shields.io/badge/DSH-plugin%20v1.0.4-blue.svg)](dsh-plugin/)
 [![Local First](https://img.shields.io/badge/Local--First-green.svg)](PRIVACY.md)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-brightgreen.svg)](https://www.python.org/)
 

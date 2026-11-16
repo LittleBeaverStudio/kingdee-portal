@@ -1,6 +1,6 @@
 {
   "name": "@littlebeaverstudio/kingdee-portal",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "type": "module",
   "description": "DSH bundle that opens the local Kingdee business portal in the sidebar, using your own account and permissions.",
   "homepage": "https://github.com/LittleBeaverStudio/kingdee-portal#readme",

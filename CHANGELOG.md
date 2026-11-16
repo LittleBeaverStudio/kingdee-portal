@@ -3,6 +3,28 @@
 All notable changes to the Kingdee Portal DSH plugin are documented here.
 Format based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.0.4] - 2026-11-17
+
+### Fixed
+- Push (`下推`) to generate an expense reimbursement bill no longer reuses the
+  auto-retrying API helper: Push is a non-idempotent write, and a transport
+  timeout could leave Kingdee having created the bill while the portal reported
+  failure (or created duplicates). The portal now sends the request with
+  retries disabled and, whenever the result cannot be confirmed, raises an
+  explicit "下推结果未确认" error that asks the user to check the bill list
+  before retrying. (Ported from the public-edition fix of 2026-11-16.)
+- After a successful push the source application bill's contact unit
+  (往来单位) is inherited onto the new reimbursement bill when the push rule
+  leaves it empty. Inheritance failures never fail the push itself — they are
+  surfaced as a warning banner in the push dialog.
+- The push dialog now passes `source_fid`, renders the inheritance warning,
+  blocks double-submits for the same bill while a push is in flight, and offers
+  a "重试读取" action when the created bill's details cannot be read back.
+
+### Tests
+- Added `tests/test_reimburse_push.py` (8 cases): non-retry on uncertain
+  transport, contact inheritance rules, and HTTP endpoint behaviour.
+
 ## [1.0.3] - 2026-11-12
 
 ### Changed
