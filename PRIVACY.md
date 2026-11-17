@@ -3,7 +3,7 @@
 [![Local First](https://img.shields.io/badge/🏠-本地优先-green.svg)](README.md)
 [![No Telemetry](https://img.shields.io/badge/📡-无遥测-blue.svg)](#-明确不做的事)
 [![In-Memory Credentials](https://img.shields.io/badge/🔑-凭据不落盘-orange.svg)](#-我们处理哪些数据)
-[![License](https://img.shields.io/badge/License-No--Resale%201.0-yellow.svg)](LICENSE)
+[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 > 📅 生效日期：**2026-11-17** · 🏷️ 适用版本：插件 v1.0.4 / 门户 v1.5.8
 > 📦 适用产品：[LittleBeaverStudio/kingdee-portal](https://github.com/LittleBeaverStudio/kingdee-portal)

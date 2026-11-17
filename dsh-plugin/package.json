@@ -1,6 +1,7 @@
 {
   "name": "@littlebeaverstudio/kingdee-portal",
   "version": "1.0.4",
+  "license": "MIT",
   "type": "module",
   "description": "Connect to a local Kingdee business workspace using your own account and permissions.",
   "homepage": "https://github.com/LittleBeaverStudio/kingdee-portal#readme",

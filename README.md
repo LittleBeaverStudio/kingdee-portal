@@ -1,6 +1,6 @@
 # 金蝶经营门户 · DSH 本地插件
 
-[![License](https://img.shields.io/badge/License-No--Resale%201.0-yellow.svg)](LICENSE)
+[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![DSH Plugin](https://img.shields.io/badge/DSH-plugin%20v1.0.4-blue.svg)](dsh-plugin/)
 [![Local First](https://img.shields.io/badge/Local--First-green.svg)](PRIVACY.md)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-brightgreen.svg)](https://www.python.org/)
@@ -148,5 +148,7 @@ python -m unittest discover -s tests -p 'test_*.py' -v
 
 ## 许可证
 
-[小河狸工作室非转售许可 1.0](LICENSE)。`vendor/helpers/` 中部分实现来自
-kingdee-data-exporter，见 [vendor/kingdee-data-exporter-LICENSE.md](vendor/kingdee-data-exporter-LICENSE.md)。
+本项目自有代码采用 [MIT 许可证](LICENSE)。部分代码改编自 kingdee-data-exporter，
+包括 `vendor/helpers/` 中的部分实现和 `financial_reports.py` 中的 KDS 请求与解码实现；
+这些代码仍受其[随附的非转售许可](vendor/kingdee-data-exporter-LICENSE.md)约束。
+因此，完整发布包包含不同许可的代码，使用或再分发时请同时遵守相应条款。
