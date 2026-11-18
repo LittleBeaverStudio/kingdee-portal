@@ -3,6 +3,20 @@
 All notable changes to the Kingdee Portal DSH plugin are documented here.
 Format based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.1.1] - 2026-11-18
+
+### Added
+- Ported public-edition v1.6.5 "My approvals" history: the approval entry is
+  now labeled "我的审批" with two tabs — pending ("待我审批") and completed
+  ("我已审批"). New `workflow_history.py` merges `WF_AssignmentHisBill` (live)
+  and `WF_AssignmentBillEndHis` (archived), reading the signed-in user's own
+  completed tasks by `FReceiverId` and `FStatus=1`, deduplicated by task ID.
+  New GET `/api/workflow/history` and `/api/workflow/history/<aid>` support
+  filtering by bill number, applicant, four document types, my decision and
+  processing date, with 30-day default, 20/50/100 paging and a read-only detail
+  view. "My decision" and the bill's current status are shown separately, since
+  approving your own node does not mean the whole bill is approved.
+
 ## [1.1.0] - 2026-11-18
 
 ### Added

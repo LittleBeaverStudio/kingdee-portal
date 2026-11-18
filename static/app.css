@@ -849,4 +849,8 @@ select, input[type=date], input[type=number] { font-family: inherit; }
 .list-pager input,.list-pager select{height:34px;border:1px solid var(--line);border-radius:8px;padding:5px 8px;background:var(--card);color:var(--t1);font:inherit}
 .list-pager input{width:60px}.list-pager .btn{min-height:34px;padding:6px 12px}
 .list-pager .btn:disabled{opacity:.4;cursor:default}
-.wrap:has(#v-apply.on),.wrap:has(#v-bills.on){padding-top:16px}
+.wrap:has(#v-apply.on),.wrap:has(#v-bills.on),.wrap:has(#v-workflow.on){padding-top:16px}
+.wf-tabs{margin-bottom:16px}
+#wf-content .scroll{overflow:auto}
+#wf-content table{min-width:1100px}
+#wf-content .link{border:0;background:none;color:var(--brand);padding:0;font:inherit;cursor:pointer;text-align:left}

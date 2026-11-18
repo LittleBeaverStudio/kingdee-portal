@@ -39,6 +39,7 @@ import metrics_mgmt_full
 import metrics_sales
 import portal_actions
 import workflow_actions
+import workflow_history
 import list_filters
 import bill_lists
 import store
@@ -1560,7 +1561,8 @@ def api_workflow_tasks():
     try:
         _, uid = _workflow_actor()
         orgs = [str(x) for x in request.args.getlist("org") if str(x).strip()]
-        rows = workflow_actions.list_tasks(str(CFG.get("expense_skill_dir") or ""), uid, orgs=orgs or None)
+        rows = ([] if request.args.get("scope_empty") == "1" else
+                workflow_actions.list_tasks(str(CFG.get("expense_skill_dir") or ""), uid, orgs=orgs or None))
         return jsonify({"ok": True, "rows": rows[:200], "has_more": len(rows) > 200})
     except KdError as exc:
         return jsonify({"ok": False, "error": exc.to_dict()})
@@ -1577,6 +1579,33 @@ def api_workflow_detail(aid):
         return jsonify({"ok": False, "error": exc.to_dict()})
     except (Exception, SystemExit) as exc:
         return _err("读取审批单据", str(exc)[:350])
+
+
+@app.get("/api/workflow/history")
+def api_workflow_history():
+    try:
+        _, uid = _workflow_actor()
+        orgs = [str(x).strip() for x in request.args.getlist("org") if str(x).strip()]
+        result = workflow_history.page(str(CFG.get("expense_skill_dir") or ""), uid,
+            workflow_history.parse(request.args), [] if request.args.get("scope_empty") == "1" else orgs or None,
+            int(request.args.get("page", "1")), int(request.args.get("page_size", "20")),
+            cache=_require_session(), refresh=request.args.get("refresh") == "1")
+        return jsonify({"ok": True, **result})
+    except KdError as exc:
+        return jsonify({"ok": False, "error": exc.to_dict()})
+    except (Exception, SystemExit) as exc:
+        return _err("读取已审批记录", str(exc)[:350])
+
+
+@app.get("/api/workflow/history/<aid>")
+def api_workflow_history_detail(aid):
+    try:
+        _, uid = _workflow_actor()
+        return jsonify({"ok": True, **workflow_history.detail(str(CFG.get("expense_skill_dir") or ""), uid, aid)})
+    except KdError as exc:
+        return jsonify({"ok": False, "error": exc.to_dict()})
+    except (Exception, SystemExit) as exc:
+        return _err("读取已审批单据", str(exc)[:350])
 
 
 @app.post("/api/workflow/decide")

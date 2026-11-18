@@ -673,6 +673,7 @@
       listPages[S.view].page = 1;
       if (S.view === "apply") rbLoadList(); else rbLoadBills();
     }
+    if (S.view === "workflow") { listPages.history.page = 1; loadWorkflow(); }
   }
   function orgDoneNotice() { $("org-banner").hidden = true; }
 
@@ -763,9 +764,9 @@
      所以默认关闭，开启方式见 portal_config.json 的 enable_write_ops。 */
   var R = { status: null, rows: null, bill: null, fid: "", travel: false,
             pendingFocus: "", upMsgs: [] };
-  var listFilterState = { apply: {}, bills: {} };
+  var listFilterState = { apply: {}, bills: {}, history: {} };
   var listRequestSeq = { apply: 0, bills: 0 };
-  var listPages = { apply: {page:1, size:20}, bills: {page:1, size:20} };
+  var listPages = { apply: {page:1, size:20}, bills: {page:1, size:20}, history: {page:1, size:20} };
 
   function listFilters(page) {
     var f = listFilterState[page], prefix = page + "-filter-";
@@ -825,7 +826,7 @@
     var p = r.pagination;
     if (!p) return '';
     listPages[page].page = p.page;
-    return '<div class="list-pager" id="' + page + '-pager"><span>共 ' + p.total + ' 张 · 第 ' + p.page + ' / ' + p.pages + ' 页</span>' +
+    return '<div class="list-pager" id="' + page + '-pager"><span>共 ' + p.total + ' ' + esc(p.unit || '张') + ' · 第 ' + p.page + ' / ' + p.pages + ' 页</span>' +
       '<div class="row-actions"><label>每页 <select aria-label="每页条数" data-page-size>' +
       [20,50,100].map(function (n) { return '<option value="' + n + '"' + (p.page_size === n ? ' selected' : '') + '>' + n + ' 条</option>'; }).join('') +
       '</select></label><button class="btn" data-list-prev' + (p.has_prev ? '' : ' disabled') + '>上一页</button>' +
@@ -2038,16 +2039,59 @@
   }
 
   /* ---- 待我审批：当前审核人直接办理工作流任务 ---- */
-  var workflowRows = [], workflowBusy = {};
-  function loadWorkflow() {
+  var workflowRows = [], workflowBusy = {}, workflowTab = 'pending', workflowSeq = 0;
+  (function () {
+    var d = new Date(); d.setDate(d.getDate() - 29);
+    listFilterState.history.date_from = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+  })();
+  function historyFilters() {
+    var f = listFilterState.history;
+    function input(key, label, type) {
+      return '<label>' + label + '<input id="history-filter-' + key + '" name="' + key + '" type="' +
+        (type || 'text') + '" maxlength="100" value="' + esc(f[key] || '') + '"></label>';
+    }
+    function select(key, label, options) {
+      return '<label>' + label + '<select id="history-filter-' + key + '" name="' + key + '">' +
+        options.map(function (x) { return '<option value="' + x[0] + '"' + (f[key] === x[0] ? ' selected' : '') + '>' + x[1] + '</option>'; }).join('') + '</select></label>';
+    }
+    return '<form class="list-filters" id="history-filters">' + input('q','单据编号') + input('person','申请人') +
+      select('form','单据类型',[['','全部类型'],['ER_ExpenseRequest','费用申请'],['ER_ExpenseRequest_Travel','出差申请'],
+        ['ER_ExpReimbursement','费用报销'],['ER_ExpReimbursement_Travel','差旅报销']]) +
+      select('result','我的处理结果',[['','全部结果'],['approve','同意'],['reject','驳回'],['other','其他处理']]) +
+      input('date_from','处理日期从','date') + input('date_to','至','date') +
+      '<div class="row-actions"><button class="btn pri" type="submit">筛选</button><button class="btn" type="button" id="history-filter-reset">重置</button></div></form>';
+  }
+  function loadWorkflow(fresh) {
     var root = $("v-workflow");
-    root.innerHTML = '<div class="hint">正在读取分配给你的待办…</div>';
-    api("/api/workflow/tasks", null, "GET").then(function (r) {
-      if (!r.ok) { root.innerHTML = errLine(r.error); return; }
+    var history = workflowTab === 'history', seq = ++workflowSeq;
+    root.innerHTML = '<div class="row-actions wf-tabs" role="tablist" aria-label="我的审批">' +
+      [['pending','待我审批'],['history','我已审批']].map(function (x) {
+        return '<button class="btn' + (workflowTab === x[0] ? ' pri' : '') + '" role="tab" aria-selected="' +
+          (workflowTab === x[0]) + '" data-wf-tab="' + x[0] + '">' + x[1] + '</button>';
+      }).join('') + '</div>' + (history ? historyFilters() : '') +
+      '<div id="wf-result"></div><div id="wf-content" aria-live="polite"><div class="hint">正在读取' + (history ? '已审批记录' : '分配给你的待办') + '…</div></div>';
+    Array.prototype.forEach.call(root.querySelectorAll('[data-wf-tab]'), function (b) {
+      b.addEventListener('click', function () { if (workflowTab !== b.dataset.wfTab) { workflowTab = b.dataset.wfTab; loadWorkflow(); } });
+    });
+    if (history) wireListFilters('history', loadWorkflow);
+    var params = new URLSearchParams(); S.selected.forEach(function (o) { params.append('org',o); });
+    if (!S.selected.length) params.set('scope_empty','1');
+    api(history ? '/api/workflow/history' + listFilterQuery('history', fresh) : '/api/workflow/tasks?' + params.toString(), null, 'GET').then(function (r) {
+      if (seq !== workflowSeq) return;
+      var content = $('wf-content');
+      if (!r.ok) { content.innerHTML = errLine(r.error); return; }
       workflowRows = r.rows || [];
-      root.innerHTML = '<div class="page-intro"><p>处理分配给你的费用、出差申请及报销审批。点击单据查看明细与发票。</p></div>' +
-        '<div id="wf-result"></div>' + listCoverage(r) +
-        '<div class="sec">待我审批 <span class="sub">' + workflowRows.length + ' 项</span></div>' +
+      if (history) {
+        content.innerHTML = '<p class="hint">包含在金蝶和门户处理的审批。金额、申请人和单据状态显示当前值；每次审批分别保留。</p>' +
+          (workflowRows.length ? table([{t:'单据编号'},{t:'类型'},{t:'申请人'},{t:'金额',num:1},{t:'我的处理结果'},
+            {t:'处理时间'},{t:'单据当前状态'},{t:'组织'},{t:'操作'}], workflowRows.map(function (x) {
+              return '<tr><td><button class="link mono" data-wf-open="' + esc(x.assignment_id) + '">' + esc(x.bill_no) + '</button></td><td>' + esc(x.kind) +
+                '</td><td>' + esc(x.applicant || '—') + '</td><td class="num">' + (x.amount == null ? '—' : money(x.amount)) +
+                '</td><td>' + esc(x.result) + '</td><td>' + esc((x.completed || '').replace('T',' ').slice(0,19)) + '</td><td>' + esc(x.bill_status_cn) +
+                '</td><td>' + esc(x.org_no + ' ' + x.org_name) + '</td><td><button class="btn" data-wf-open="' + esc(x.assignment_id) + '">查看</button></td></tr>';
+            })) : '<div class="hint">没有符合条件的已审批记录，可调整或清空处理日期筛选。</div>') + listPager('history', r);
+        wireListPager('history', loadWorkflow);
+      } else content.innerHTML = listCoverage(r) +
         (workflowRows.length ? table([{t:"单据编号"},{t:"类型"},{t:"当前节点"},{t:"发送人"},{t:"组织"},{t:"接收时间"},{t:"操作"}],
           workflowRows.map(function (x) {
             return '<tr><td class="mono">' + esc(x.bill_no) + '</td><td>' + esc(x.kind) + '</td><td>' + esc(x.node) +
@@ -2055,19 +2099,24 @@
               '</td><td><button class="btn pri" data-wf-open="' + esc(x.assignment_id) + '">查看并审批</button></td></tr>';
           })) : '<div class="hint">当前没有分配给你的待办任务。</div>');
       Array.prototype.forEach.call(root.querySelectorAll("[data-wf-open]"), function (b) {
-        b.addEventListener("click", function () { workflowDialog(b.dataset.wfOpen); });
+        b.addEventListener("click", function () { workflowDialog(b.dataset.wfOpen, history); });
       });
-    }).catch(function () { root.innerHTML = '<div class="banner err">待办读取失败，请刷新重试。</div>'; });
+    }).catch(function () { if (seq === workflowSeq) $('wf-content').innerHTML = '<div class="banner err">审批列表读取失败，请刷新重试。</div>'; });
   }
 
-  function workflowDialog(aid) {
+  function workflowDialog(aid, history) {
     if (workflowBusy[aid]) return;
-    var m = openModal("待办审批", '<div class="hint">正在读取审批单据…</div>', {dismissible:false});
-    api("/api/workflow/task/" + encodeURIComponent(aid), null, "GET").then(function (r) {
+    var m = openModal(history ? '已审批记录' : '待办审批', '<div class="hint">正在读取审批单据…</div>', {dismissible:false});
+    api((history ? '/api/workflow/history/' : '/api/workflow/task/') + encodeURIComponent(aid), null, 'GET').then(function (r) {
       if (!r.ok) { m.body.innerHTML = errLine(r.error); return; }
       var t = r.task, b = r.bill, request = r.is_application;
-      var h = '<div class="pd-sum"><div>单据编号<b>' + esc(t.bill_no) + '</b></div><div>单据类型<b>' + esc(t.kind) +
-        '</b></div><div>当前节点<b>' + esc(t.node) + '</b></div><div>申请人<b>' + esc(b.staff || b.proposer) +
+      history = history || r.read_only === true;
+      var h = history ? '<div class="pd-sum"><div>我的处理结果<b>' + esc(t.result) + '</b></div><div>处理时间<b>' +
+        esc((t.completed || '').replace('T',' ').slice(0,19)) + '</b></div><div>单据编号<b>' + esc(t.bill_no) + '</b></div></div>' +
+        '<div class="sec">金蝶处理意见</div><p class="wf-text">' + esc(t.note || '未填写') + '</p>' : '';
+      if (!b) { m.body.innerHTML = h + '<div class="hint">' + esc(r.bill_error || '无法读取当前单据') + '</div>'; return; }
+      h += '<div class="pd-sum"><div>单据编号<b>' + esc(t.bill_no) + '</b></div><div>单据类型<b>' + esc(t.kind) +
+        '</b></div><div>' + (history ? '单据当前状态' : '当前节点') + '<b>' + esc(history ? t.bill_status_cn : t.node) + '</b></div><div>申请人<b>' + esc(b.staff || b.proposer) +
         '</b></div><div>组织<b>' + esc(b.org_no + ' ' + b.org_name) + '</b></div><div>金额<b>' + money(b.amount) + '</b></div></div>';
       if (b.reason) h += '<p class="wf-text">' + esc(b.reason) + '</p>';
       if (t.content) h += '<details><summary>任务说明</summary><p class="wf-text">' + esc(t.content) + '</p></details>';
@@ -2081,6 +2130,7 @@
             return '<tr><td>' + esc(x.bill_no) + '</td><td>' + esc(x.invoice_no) + '</td><td class="num">' + money(x.amount) + '</td><td>' + link + '</td></tr>';
           }));
       }
+      if (history) { m.body.innerHTML = h; return; }
       h += '<label class="rb-field">审批备注（驳回时必填）<textarea id="wf-note" maxlength="1000" rows="3"></textarea></label>' +
         '<p class="hint">备注由门户留存，不会写入金蝶的审批意见字段。审批仍按金蝶现有流程规则执行。</p>' +
         '<div id="wf-confirm" class="banner info" hidden></div><div id="wf-message" role="status"></div>' +
@@ -3565,7 +3615,7 @@
                            openApplyBill: function (fid) { R.pendingFocus = fid; gotoView("bills"); } };
 
   var TITLES = { expense: "费用报销看板", mgmt: "财务健康与风险", sales: "销售与回款表现",
-                 cash: "现金流预测", apply: "申请单", bills: "报销单", workflow: "待我审批",
+                 cash: "现金流预测", apply: "申请单", bills: "报销单", workflow: "我的审批",
                  pzcfg: "发票云配置", adm: "租户管理", orgs: "组织与权限", source: "数据源与口径",
                  guide: "使用说明" };
   var DASH_VIEWS = ["expense", "mgmt", "sales", "cash"];
