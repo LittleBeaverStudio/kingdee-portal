@@ -669,6 +669,10 @@
     renderOrgChips();
     ["expense", "mgmt", "sales", "cash"].forEach(rerenderView);
     $("org-banner").hidden = true;
+    if (S.view === "apply" || S.view === "bills") {
+      listPages[S.view].page = 1;
+      if (S.view === "apply") rbLoadList(); else rbLoadBills();
+    }
   }
   function orgDoneNotice() { $("org-banner").hidden = true; }
 
@@ -759,6 +763,96 @@
      所以默认关闭，开启方式见 portal_config.json 的 enable_write_ops。 */
   var R = { status: null, rows: null, bill: null, fid: "", travel: false,
             pendingFocus: "", upMsgs: [] };
+  var listFilterState = { apply: {}, bills: {} };
+  var listRequestSeq = { apply: 0, bills: 0 };
+  var listPages = { apply: {page:1, size:20}, bills: {page:1, size:20} };
+
+  function listFilters(page) {
+    var f = listFilterState[page], prefix = page + "-filter-";
+    function input(key, label, type) {
+      return '<label>' + label + '<input id="' + prefix + key + '" name="' + key + '" type="' +
+        (type || "text") + '" value="' + esc(f[key] || "") + '" maxlength="100"></label>';
+    }
+    function select(key, label, options) {
+      return '<label>' + label + '<select id="' + prefix + key + '" name="' + key + '">' +
+        options.map(function (x) { return '<option value="' + esc(x[0]) + '"' +
+          (String(f[key] || "") === String(x[0]) ? ' selected' : '') + '>' + esc(x[1]) + '</option>'; }).join("") + '</select></label>';
+    }
+    return '<form class="list-filters" id="' + page + '-filters">' +
+      input("q", "单据编号") + input("person", "申请人") +
+      select("kind", "单据类型", [["", "全部类型"], ["expense", page === "apply" ? "费用申请" : "费用报销"],
+        ["travel", page === "apply" ? "出差申请" : "差旅报销"]]) +
+      (page === "apply" ? select("borrow", "是否借款", [["", "全部"], ["1", "借款"], ["0", "非借款"]]) :
+        select("status", "单据状态", [["", "全部状态"], ["draft", "未提交"], ["Z", "暂存"], ["A", "已保存"],
+          ["B", "审核中"], ["C", "已审核"], ["D", "重新审核"]])) +
+      input("date_from", page === "apply" ? "申请日期从" : "创建日期从", "date") + input("date_to", "至", "date") +
+      '<div class="row-actions"><button class="btn pri" type="submit">筛选</button>' +
+      '<button class="btn" type="button" id="' + page + '-filter-reset">重置</button></div></form>';
+  }
+
+  function wireListFilters(page, reload) {
+    var form = $(page + "-filters");
+    form.addEventListener("submit", function (e) {
+      e.preventDefault();
+      var data = new FormData(form), state = {};
+      data.forEach(function (value, key) { state[key] = String(value).trim(); });
+      listFilterState[page] = state;
+      listPages[page].page = 1;
+      reload();
+    });
+    $(page + "-filter-reset").addEventListener("click", function () {
+      listFilterState[page] = {};
+      listPages[page].page = 1;
+      Array.prototype.forEach.call(form.querySelectorAll("input,select"), function (el) { el.value = ""; });
+      reload();
+    });
+  }
+
+  function listFilterQuery(page, fresh) {
+    var params = new URLSearchParams();
+    Object.keys(listFilterState[page]).forEach(function (key) {
+      var v = listFilterState[page][key]; if (v) params.append(key, v);
+    });
+    if (!S.selected.length) params.set("scope_empty", "1");
+    else S.selected.forEach(function (org) { params.append("org", org); });
+    params.set("page", listPages[page].page);
+    params.set("page_size", listPages[page].size);
+    if (fresh !== false) params.set("refresh", "1");
+    return params.toString() ? "?" + params.toString() : "";
+  }
+
+  function listPager(page, r) {
+    var p = r.pagination;
+    if (!p) return '';
+    listPages[page].page = p.page;
+    return '<div class="list-pager" id="' + page + '-pager"><span>共 ' + p.total + ' 张 · 第 ' + p.page + ' / ' + p.pages + ' 页</span>' +
+      '<div class="row-actions"><label>每页 <select aria-label="每页条数" data-page-size>' +
+      [20,50,100].map(function (n) { return '<option value="' + n + '"' + (p.page_size === n ? ' selected' : '') + '>' + n + ' 条</option>'; }).join('') +
+      '</select></label><button class="btn" data-list-prev' + (p.has_prev ? '' : ' disabled') + '>上一页</button>' +
+      '<button class="btn" data-list-next' + (p.has_next ? '' : ' disabled') + '>下一页</button>' +
+      '<label>跳至 <input type="number" min="1" max="' + p.pages + '" value="' + p.page + '" aria-label="页码"></label>' +
+      '<button class="btn" data-list-go>跳转</button></div></div>';
+  }
+
+  function wireListPager(page, reload) {
+    var root = $(page + '-pager'); if (!root) return;
+    function go(number) {
+      var max = Number(root.querySelector('input').max), n = Number(number);
+      if (!Number.isInteger(n) || n < 1 || n > max) return;
+      listPages[page].page = n; reload(false);
+    }
+    root.querySelector('[data-list-prev]').addEventListener('click', function () { go(listPages[page].page - 1); });
+    root.querySelector('[data-list-next]').addEventListener('click', function () { go(listPages[page].page + 1); });
+    root.querySelector('[data-list-go]').addEventListener('click', function () { go(root.querySelector('input').value); });
+    root.querySelector('input').addEventListener('keydown', function (e) { if (e.key === 'Enter') go(this.value); });
+    root.querySelector('[data-page-size]').addEventListener('change', function () {
+      listPages[page].size = Number(this.value); listPages[page].page = 1; reload(false);
+    });
+  }
+
+  function listCoverage(r) {
+    return r.has_more ? '<div class="banner warn">符合条件的单据超过200张，当前显示前200张，请缩小筛选范围；统计仅包含当前结果。</div>' : '';
+  }
 
   function rbBanner(st) {
     if (!st.enabled) {
@@ -784,10 +878,11 @@
       h.push(rbNoticeIfOff(st));
       if (!st.enabled) { prog(false);
       root.innerHTML = h.join(""); return; }
-      h.push('<div class="sec">可下推的申请单 </div>');
+      h.push(listFilters("apply"));
       h.push('<div id="rb-list"><div class="hint">加载中…</div></div>');
       prog(false);
       root.innerHTML = h.join("");
+      wireListFilters("apply", rbLoadList);
       rbLoadList();
     }).catch(function () {
       root.innerHTML = '<div class="banner warn">连接失败，请刷新重试。</div>';
@@ -806,8 +901,8 @@
       h.push(rbNoticeIfOff(st));
       if (!st.enabled) { prog(false);
       root.innerHTML = h.join(""); return; }
+      h.push(listFilters("bills"));
       h.push('<div id="rb-stats"></div>');
-      h.push('<div class="sec">报销单列表 <span class="sub">点单号继续办理</span></div>');
       h.push('<div class="row-actions" style="margin-bottom:8px">' +
         '<button class="btn" id="rb-filter-all">全部</button>' +
         '<button class="btn" id="rb-filter-pending">只看审核中</button>' +
@@ -816,9 +911,14 @@
       h.push('<div id="rb-detail" hidden></div>');
       prog(false);
       root.innerHTML = h.join("");
-      $("rb-filter-all").addEventListener("click", function () { rbLoadBills("all"); });
-      $("rb-filter-pending").addEventListener("click", function () { rbLoadBills("pending"); });
-      $("rb-filter-draft").addEventListener("click", function () { rbLoadBills("draft"); });
+      wireListFilters("bills", rbLoadBills);
+      function quick(status) {
+        listFilterState.bills.status = status; $("bills-filter-status").value = status;
+        listPages.bills.page = 1; rbLoadBills();
+      }
+      $("rb-filter-all").addEventListener("click", function () { quick(""); });
+      $("rb-filter-pending").addEventListener("click", function () { quick("B"); });
+      $("rb-filter-draft").addEventListener("click", function () { quick("draft"); });
       rbLoadBills("all");
       if (R.pendingFocus) {                       // 从申请单下推后跳过来，直接打开新单弹窗
         var f = R.pendingFocus;
@@ -830,43 +930,53 @@
     });
   }
 
-  function rbLoadList() {
-    api("/api/reimburse/requests", null, "GET").then(function (r) {
+  function rbLoadList(fresh) {
+    var seq = ++listRequestSeq.apply;
+    api("/api/reimburse/requests" + listFilterQuery("apply", fresh), null, "GET").then(function (r) {
+      if (seq !== listRequestSeq.apply) return;
       if (!r.ok) { showErr(r.error); $("rb-list").innerHTML = '<div class="hint">读取失败</div>'; return; }
       R.rows = r.rows || [];
-      if (!R.rows.length) { $("rb-list").innerHTML = '<div class="hint">没有「已审核且未关闭」的申请单可下推。</div>'; return; }
+      if (!R.rows.length) {
+        $("rb-list").innerHTML = '<div class="hint">没有符合筛选条件的已审核、未关闭申请单。</div>' + listPager("apply", r);
+        wireListPager("apply", rbLoadList); return;
+      }
       var rows = R.rows.map(function (x) {
         return "<tr><td class='mono'>" + esc(x.bill_no) + "</td><td>" + esc(x.date) + "</td>" +
           "<td>" + esc(x.kind) + (x.is_borrow ? " <span class='tag'>借款</span>" : "") + "</td>" +
           "<td>" + esc(x.org_no + " " + x.org_name) + "</td>" +
           "<td>" + esc(x.staff) + "</td><td class='num'>" + money(x.amount) + "</td>" +
+          "<td class='num'>" + money(x.pushed_reimb_amount) + "</td>" +
           "<td class='row-acts'><button type='button' class='btn' data-view='" +
           esc(x.bill_no) + "' data-travel='" + (x.kind === "出差申请" ? "1" : "0") +
           "'>查看</button> " +
           "<button type='button' class='btn pri' data-push='" + esc(x.bill_no) +
           "' data-travel='" + (x.kind === "出差申请" ? "1" : "0") +
-          "'>下推</button></td></tr>";
+          "'>下推</button> " +
+          "<button type='button' class='btn' data-close-request='" + esc(x.fid) +
+          "' data-travel='" + (x.kind === "出差申请" ? "1" : "0") + "'>关闭</button></td></tr>";
       });
       // 统计框（2026-10-20 用户要求，类似报销单页）
       var _sum = R.rows.reduce(function (a, x) { return a + (Number(x.amount) || 0); }, 0);
       var _staff = {}, _orgs = {};
       R.rows.forEach(function (x) { if (x.staff) _staff[x.staff] = 1; if (x.org_no) _orgs[x.org_no] = 1; });
       var _borrow = R.rows.filter(function (x) { return x.is_borrow; }).length;
+      var summary = r.summary || {count:R.rows.length, amount:_sum, staff:Object.keys(_staff).length, orgs:Object.keys(_orgs).length, borrow:_borrow};
       $("rb-list").innerHTML =
         '<div class="rb-stat">' +
-        '<div><span>可下推</span><b>' + R.rows.length + ' <em>张</em></b></div>' +
-        '<div><span>申请金额合计</span><b>' + money(_sum) + '</b></div>' +
-        '<div><span>涉及申请人</span><b>' + Object.keys(_staff).length + ' <em>人</em></b></div>' +
-        '<div><span>涉及组织</span><b>' + Object.keys(_orgs).length + ' <em>个</em></b></div>' +
-        (_borrow ? '<div><span>含借款单</span><b>' + _borrow + ' <em>张</em></b></div>' : '') +
+        '<div><span>可下推</span><b>' + summary.count + ' <em>张</em></b></div>' +
+        '<div><span>申请金额合计</span><b>' + money(summary.amount) + '</b></div>' +
+        '<div><span>涉及申请人</span><b>' + summary.staff + ' <em>人</em></b></div>' +
+        '<div><span>涉及组织</span><b>' + summary.orgs + ' <em>个</em></b></div>' +
+        (summary.borrow ? '<div><span>含借款单</span><b>' + summary.borrow + ' <em>张</em></b></div>' : '') +
         '</div>' +
         table([{ t: "申请单号" }, { t: "日期" }, { t: "类型" }, { t: "组织" }, { t: "申请人" },
-               { t: "申请金额", num: 1 }, { t: "操作" }], rows);
+               { t: "申请金额", num: 1 }, { t: "已下推报销单金额", num: 1 }, { t: "操作" }], rows) + listPager("apply", r);
+      wireListPager("apply", rbLoadList);
       Array.prototype.forEach.call($("rb-list").querySelectorAll("button[data-push]"), function (b) {
         b.addEventListener("click", function () {
           // ★ 2026-10-18：改成弹窗（生成草稿 → 上传发票 → 提交 → 列表看状态）
           var no = b.dataset.push, tv = b.dataset.travel === "1";
-          var hit = (R.rows || []).filter(function (z) { return z.bill_no === no; })[0] ||
+          var hit = (R.rows || []).filter(function (z) { return z.bill_no === no && (z.kind === "出差申请") === tv; })[0] ||
                     { bill_no: no, kind: tv ? "出差申请" : "费用申请" };
           rbPushDialog(hit, tv);
         });
@@ -874,11 +984,54 @@
       Array.prototype.forEach.call($("rb-list").querySelectorAll("button[data-view]"), function (b) {
         b.addEventListener("click", function () {
           var no = b.dataset.view, tv = b.dataset.travel === "1";
-          var hit = (R.rows || []).filter(function (z) { return z.bill_no === no; })[0] ||
+          var hit = (R.rows || []).filter(function (z) { return z.bill_no === no && (z.kind === "出差申请") === tv; })[0] ||
                     { bill_no: no, kind: tv ? "出差申请" : "费用申请" };
           rbViewRequest(hit);
         });
       });
+      Array.prototype.forEach.call($("rb-list").querySelectorAll("button[data-close-request]"), function (b) {
+        b.addEventListener("click", function () {
+          var travel = b.dataset.travel === "1";
+          var item = R.rows.filter(function (x) {
+            return String(x.fid) === b.dataset.closeRequest && (x.kind === "出差申请") === travel;
+          })[0];
+          if (item) rbCloseRequest(item, travel);
+        });
+      });
+    }).catch(function () {
+      showErr({ message: "读取申请单失败，请刷新重试" });
+    });
+  }
+
+  var requestCloseInFlight = {};
+  function rbCloseRequest(item, travel) {
+    var key = (travel ? "travel:" : "expense:") + item.fid;
+    if (requestCloseInFlight[key]) return;
+    var busy = false;
+    var m = openModal("关闭申请单", '<p>确认关闭申请单 <b>' + esc(item.bill_no) + '</b>？</p>' +
+      '<div class="banner warn">关闭后不能再下推报销单。</div>' +
+      '<div class="row-actions"><button class="btn pri" id="request-close-ok">确认关闭</button>' +
+      '<button class="btn" id="request-close-cancel">取消</button></div>', { dismissible: false });
+    m.body.querySelector("#request-close-cancel").addEventListener("click", m.close);
+    m.body.querySelector("#request-close-ok").addEventListener("click", function () {
+      if (busy || requestCloseInFlight[key]) return;
+      busy = true; requestCloseInFlight[key] = true;
+      m.el.querySelectorAll("button").forEach(function (b) { b.disabled = true; });
+      m.body.querySelector("#request-close-ok").textContent = "关闭中…";
+      api("/api/reimburse/request-close", { fid: item.fid, bill_no: item.bill_no,
+        is_travel: !!travel, confirm: "CLOSE" }).then(function (r) {
+        m.close();
+        // 无论结果是否确认，先重读列表，避免保留过期的下推按钮。
+        rbLoadList();
+        if (!r.ok) { showErr(r.error); return; }
+        var banner = document.createElement("div"); banner.className = "banner info";
+        banner.textContent = "申请单 " + item.bill_no + " 已关闭，不能再下推报销单。";
+        var host = $("v-apply");
+        if (host) host.insertBefore(banner, host.firstChild);
+      }).catch(function () {
+        m.close(); rbLoadList();
+        showErr({ message: "关闭结果未确认，请先刷新申请单列表或到金蝶核对，勿重复操作" });
+      }).finally(function () { delete requestCloseInFlight[key]; });
     });
   }
 
@@ -1101,25 +1254,31 @@
   function rbLoadBills(mode) {
     var box = $("rb-bills");
     if (!box) return;
-    mode = mode || "all";
+    var fresh = mode !== false;
+    mode = "all";
+    var seq = ++listRequestSeq.bills;
     box.innerHTML = '<div class="hint">加载中…</div>';
-    api("/api/reimburse/bills", null, "GET").then(function (r) {
-      if (!r.ok) { box.innerHTML = '<div class="hint">读取失败</div>'; return; }
+    api("/api/reimburse/bills" + listFilterQuery("bills", fresh), null, "GET").then(function (r) {
+      if (seq !== listRequestSeq.bills) return;
+      if (!r.ok) { box.innerHTML = errLine(r.error); return; }
       var all = r.rows || [];
       R.rows = all;
       var tags = { "暂存": "gray", "已保存": "blue", "审核中": "amber", "已审核": "green", "作废": "gray" };
       var sum = function (f) { return all.filter(f).reduce(function (a, x) { return a + (x.amount || 0); }, 0); };
       var n = function (f) { return all.filter(f).length; };
       var isPending = function (x) { return x.status === "B"; };
-      var isDraft = function (x) { return x.status === "Z" || x.status === "A"; };
+      var isDraft = function (x) { return x.status === "Z" || x.status === "A" || x.status === "D"; };
+      var summary = r.summary || {count:all.length, draft:{count:n(isDraft), amount:sum(isDraft)},
+        pending:{count:n(isPending), amount:sum(isPending)}, approved:{count:n(function (x) { return x.status === "C"; }),
+          amount:sum(function (x) { return x.status === "C"; })}};
       var sb = $("rb-stats");
       if (sb) {
         sb.innerHTML = '<div class="rb-stat">' +
-          '<div><span>报销单总数</span><b>' + all.length + ' <em>张</em></b></div>' +
-          '<div><span>未提交</span><b>' + n(isDraft) + ' <em>张</em></b><em class="sub-amt">' + money(sum(isDraft)) + '</em></div>' +
-          '<div><span>审核中</span><b>' + n(isPending) + ' <em>张</em></b><em class="sub-amt">' + money(sum(isPending)) + '</em></div>' +
-          '<div><span>已审核</span><b>' + n(function (x) { return x.status === "C"; }) + ' <em>张</em></b><em class="sub-amt">' +
-            money(sum(function (x) { return x.status === "C"; })) + '</em></div>' +
+          '<div><span>报销单总数</span><b>' + summary.count + ' <em>张</em></b></div>' +
+          '<div><span>未提交</span><b>' + summary.draft.count + ' <em>张</em></b><em class="sub-amt">' + money(summary.draft.amount) + '</em></div>' +
+          '<div><span>审核中</span><b>' + summary.pending.count + ' <em>张</em></b><em class="sub-amt">' + money(summary.pending.amount) + '</em></div>' +
+          '<div><span>已审核</span><b>' + summary.approved.count + ' <em>张</em></b><em class="sub-amt">' +
+            money(summary.approved.amount) + '</em></div>' +
           "</div>";
       }
       var rows = all.filter(mode === "pending" ? isPending : mode === "draft" ? isDraft : function () { return true; });
@@ -1144,10 +1303,11 @@
                  esc(x.bill_no || "") + "' data-kind='" + esc(x.kind) + "'>删除</a>" : "") +
           "</td></tr>";
       });
-      box.innerHTML = rows.length
+      box.innerHTML = (rows.length
         ? table([{ t: "单据编号" }, { t: "类型" }, { t: "状态" }, { t: "金额", num: 1 },
                  { t: "申请人" }, { t: "组织" }, { t: "创建时间" }, { t: "操作" }], body)
-        : '<div class="hint">没有符合条件的单据。</div>';
+        : '<div class="hint">没有符合条件的单据。</div>') + listPager("bills", r);
+      wireListPager("bills", rbLoadBills);
       var openFrom = function (el) {
         // ★ 2026-10-18：改为弹窗查看（用户要求）
         rbBillDialog(el.dataset.open, el.dataset.kind === "差旅报销");
@@ -1254,8 +1414,8 @@
   }
 
   function rbSubmit() {
-    if (!window.confirm("提交后单据会进入审批流（A → B），审批人将收到待办。\n确认提交吗？")) return;
-    api("/api/reimburse/submit", { fid: R.fid, confirm: "SUBMIT", is_travel: !!R.travel }).then(function (r) {
+    reimburseSubmit(R.fid, R.travel).then(function (r) {
+      if (!r) return;
       if (!r.ok) { showErr(r.error); return; }
       var x = r.result || {};
       $("rb-checkbox").innerHTML = '<div class="banner info">✅ 已提交：' + esc(x.before_status) +
@@ -1307,6 +1467,67 @@
   /* ---------------- ① 下推弹窗 ---------------- */
   var PD = null;
   var pushInFlight = {};
+
+  function requestTypeText(value) {
+    var labels = {"0": "费用报销", "1": "申请付款", "2": "申请退款"};
+    return Object.prototype.hasOwnProperty.call(labels, String(value)) ? labels[String(value)] : "未识别";
+  }
+
+  /* 三个办理入口共享同一份服务端金额预览和二次确认。 */
+  function reimburseSubmit(fid, travel) {
+    return api("/api/reimburse/payment/" + fid + (travel ? "?travel=1" : ""), null, "GET")
+      .then(function (r) {
+        if (!r.ok) return r;
+        var p = r.payment || {}, options = p.options || [];
+        return new Promise(function (resolve) {
+          var selected = p.needs_choice ? null : options[0], finished = false;
+          var h = '<div class="pd-sum"><div>报销金额<b>' + money(p.amount) +
+            '</b></div><div>实际可用借款<b>' + money(p.balance) + '</b></div></div>';
+          if (p.needs_choice) {
+            h += '<p>本次报销后还剩借款 ' + money(Number(p.balance) - Number(p.amount)) + '，请选择：</p>';
+            options.forEach(function (o) {
+              h += '<label class="rb-field"><input type="radio" name="loan-choice" value="' + esc(o.choice) + '"> ' +
+                (o.choice === "retain" ? '剩余借款留待下次报销' : '本次退款 ' + money(o.request_amount)) + '</label>';
+            });
+          }
+          h += '<div class="banner info" id="payment-summary"></div>' +
+            '<p>确认后将提交审核，审批人会收到待办。</p><div class="row-actions">' +
+            '<button class="btn pri" id="payment-submit">确认并提交审核</button>' +
+            '<button class="btn" id="payment-cancel">取消</button></div>';
+          var m = openModal("核对退款/付款", h, { dismissible: false, onClose: function () {
+            if (!finished) { finished = true; resolve(null); }
+          }});
+          var ok = m.body.querySelector("#payment-submit");
+          function render() {
+            ok.disabled = !selected;
+            m.body.querySelector("#payment-summary").textContent = selected
+              ? requestTypeText(selected.request_type) + "｜冲借款 " + money(selected.borrow) +
+                "｜" + (selected.request_type === "2" ? "本次退款 " : "本次申请付款 ") + money(selected.request_amount)
+              : "请先选择剩余借款的处理方式";
+          }
+          m.body.querySelectorAll('[name="loan-choice"]').forEach(function (el) {
+            el.addEventListener("change", function () {
+              selected = options.filter(function (o) { return o.choice === el.value; })[0]; render();
+            });
+          });
+          render();
+          m.body.querySelector("#payment-cancel").addEventListener("click", m.close);
+          ok.addEventListener("click", function () {
+            if (!selected || ok.disabled) return;
+            m.el.querySelectorAll("button, input").forEach(function (el) { el.disabled = true; });
+            ok.textContent = "正在核对并提交…";
+            api("/api/reimburse/submit", { fid: fid, confirm: "SUBMIT", is_travel: !!travel,
+              payment_choice: selected.choice, payment_snapshot: p.snapshot }).then(function (res) {
+              if (res.ok && res.result && res.result.warning) window.alert(res.result.warning);
+              finished = true; m.close(); resolve(res);
+            }).catch(function () {
+              finished = true; m.close(); resolve({ ok: false, error: {
+                message: "提交结果未确认，请先刷新报销单列表或到金蝶核对本单，勿重复提交" }});
+            });
+          });
+        });
+      }).catch(function () { return { ok: false, error: { message: "读取付款金额失败，请重试读取本单" } }; });
+  }
 
   function rbPushDialog(x, travel) {
     var key = (travel ? "travel:" : "expense:") + x.bill_no;
@@ -1362,6 +1583,7 @@
       "<div>申请单<b class='mono'>" + esc(it.bill_no) + "</b></div>" +
       "<div>申请人<b>" + esc(it.staff) + "</b></div>" +
       "<div>申请金额<b>" + money(it.amount) + "</b></div>" +
+      "<div>退款/付款<b>" + esc(requestTypeText(b.request_type)) + "</b></div>" +
       "<div>组织<b>" + esc((it.org_no || "") + " " + (it.org_name || "")) + "</b></div>" +
       (it.reason ? '<div style="grid-column:1/-1">事由<b style="font-weight:400;font-size:13px">' +
         esc(it.reason) + "</b></div>" : "") + "</div>");
@@ -1465,19 +1687,8 @@
     var fid = PD.fid, travel = PD.travel;
     PD.busy = true;
     pdRender();
-    api("/api/reimburse/precheck/" + fid + (travel ? "?travel=1" : ""), null, "GET").then(function (c) {
-      if (!PD) return;
-      var ck = c.check || {};
-      if (!c.ok) { PD.busy = false; showErr(c.error); pdRender(); return; }
-      if (!ck.ok) {
-        PD.busy = false;
-        PD.msgs.push('<div class="banner warn"><b>还不能提交：</b><br>' +
-          (ck.issues || []).map(esc).join("<br>") + "</div>");
-        pdRender();
-        return;
-      }
-      api("/api/reimburse/submit", { fid: fid, confirm: "SUBMIT", is_travel: !!travel })
-        .then(function (r) {
+    reimburseSubmit(fid, travel).then(function (r) {
+          if (!r) { if (PD) { PD.busy = false; pdRender(); } return; }
           if (!PD) return;
           PD.busy = false;
           if (!r.ok) { showErr(r.error); pdRender(); return; }
@@ -1494,7 +1705,6 @@
             var host = $("v-bills");
             if (host) host.insertBefore(b, host.firstChild);
           }, 300);
-        });
     });
   }
 
@@ -1580,6 +1790,7 @@
     h.push('<div class="pd-sum">' +
       "<div>单据编号<b class='mono'>" + esc(b.bill_no || ("草稿 " + b.fid)) + "</b></div>" +
       "<div>状态<b>" + esc(stText(st)) + "</b></div>" +
+      "<div>退款/付款<b>" + esc(requestTypeText(b.request_type)) + "</b></div>" +
       "<div>报销金额<b>" + money(b.amount) + "</b></div>" +
       "<div>发票价税合计<b>" + money(b.recv_total) + "</b></div>" +
       "<div>差额<b>" + money((Number(b.amount) || 0) - (Number(b.recv_total) || 0)) + "</b></div>" +
@@ -1739,12 +1950,12 @@
 
   function bdSubmit() {
     if (!BD || BD.busy) return;
-    if (!window.confirm("提交后单据会进入审批流，审批人将收到待办。\n确认提交吗？")) return;
     BD.busy = true;
     var fid = BD.fid, travel = BD.travel;
-    api("/api/reimburse/submit", { fid: fid, confirm: "SUBMIT", is_travel: !!travel })
+    reimburseSubmit(fid, travel)
       .then(function (r) {
         if (!BD) return;
+        if (!r) { BD.busy = false; return; }
         BD.busy = false;
         if (!r.ok) { showErr(r.error); return; }
         var x = r.result || {};
@@ -1824,6 +2035,102 @@
         rbPushDialog(it, travel);
       });
     });
+  }
+
+  /* ---- 待我审批：当前审核人直接办理工作流任务 ---- */
+  var workflowRows = [], workflowBusy = {};
+  function loadWorkflow() {
+    var root = $("v-workflow");
+    root.innerHTML = '<div class="hint">正在读取分配给你的待办…</div>';
+    api("/api/workflow/tasks", null, "GET").then(function (r) {
+      if (!r.ok) { root.innerHTML = errLine(r.error); return; }
+      workflowRows = r.rows || [];
+      root.innerHTML = '<div class="page-intro"><p>处理分配给你的费用、出差申请及报销审批。点击单据查看明细与发票。</p></div>' +
+        '<div id="wf-result"></div>' + listCoverage(r) +
+        '<div class="sec">待我审批 <span class="sub">' + workflowRows.length + ' 项</span></div>' +
+        (workflowRows.length ? table([{t:"单据编号"},{t:"类型"},{t:"当前节点"},{t:"发送人"},{t:"组织"},{t:"接收时间"},{t:"操作"}],
+          workflowRows.map(function (x) {
+            return '<tr><td class="mono">' + esc(x.bill_no) + '</td><td>' + esc(x.kind) + '</td><td>' + esc(x.node) +
+              '</td><td>' + esc(x.sender) + '</td><td>' + esc(x.org_no + ' ' + x.org_name) + '</td><td>' + esc(x.created) +
+              '</td><td><button class="btn pri" data-wf-open="' + esc(x.assignment_id) + '">查看并审批</button></td></tr>';
+          })) : '<div class="hint">当前没有分配给你的待办任务。</div>');
+      Array.prototype.forEach.call(root.querySelectorAll("[data-wf-open]"), function (b) {
+        b.addEventListener("click", function () { workflowDialog(b.dataset.wfOpen); });
+      });
+    }).catch(function () { root.innerHTML = '<div class="banner err">待办读取失败，请刷新重试。</div>'; });
+  }
+
+  function workflowDialog(aid) {
+    if (workflowBusy[aid]) return;
+    var m = openModal("待办审批", '<div class="hint">正在读取审批单据…</div>', {dismissible:false});
+    api("/api/workflow/task/" + encodeURIComponent(aid), null, "GET").then(function (r) {
+      if (!r.ok) { m.body.innerHTML = errLine(r.error); return; }
+      var t = r.task, b = r.bill, request = r.is_application;
+      var h = '<div class="pd-sum"><div>单据编号<b>' + esc(t.bill_no) + '</b></div><div>单据类型<b>' + esc(t.kind) +
+        '</b></div><div>当前节点<b>' + esc(t.node) + '</b></div><div>申请人<b>' + esc(b.staff || b.proposer) +
+        '</b></div><div>组织<b>' + esc(b.org_no + ' ' + b.org_name) + '</b></div><div>金额<b>' + money(b.amount) + '</b></div></div>';
+      if (b.reason) h += '<p class="wf-text">' + esc(b.reason) + '</p>';
+      if (t.content) h += '<details><summary>任务说明</summary><p class="wf-text">' + esc(t.content) + '</p></details>';
+      h += '<div class="sec">费用明细</div>' + table([{t:"序号"},{t:"费用项目"},{t:"金额",num:1}], (b.entries || []).map(function (e) {
+        return '<tr><td>' + esc(e.seq) + '</td><td>' + esc(e.item || e.exp_item) + '</td><td class="num">' + money(e.amount) + '</td></tr>';
+      }));
+      if (!request) {
+        h += '<div class="sec">发票 <span class="sub">合计 ' + money(b.recv_total) + '</span></div>' +
+          table([{t:"收票单"},{t:"发票号码"},{t:"金额",num:1},{t:"原件"}], (b.recv_rows || []).map(function (x) {
+            var link = /^https?:\/\//i.test(x.pdf_url || '') ? '<a target="_blank" rel="noopener noreferrer" href="' + esc(x.pdf_url) + '">查看发票</a>' : '—';
+            return '<tr><td>' + esc(x.bill_no) + '</td><td>' + esc(x.invoice_no) + '</td><td class="num">' + money(x.amount) + '</td><td>' + link + '</td></tr>';
+          }));
+      }
+      h += '<label class="rb-field">审批备注（驳回时必填）<textarea id="wf-note" maxlength="1000" rows="3"></textarea></label>' +
+        '<p class="hint">备注由门户留存，不会写入金蝶的审批意见字段。审批仍按金蝶现有流程规则执行。</p>' +
+        '<div id="wf-confirm" class="banner info" hidden></div><div id="wf-message" role="status"></div>' +
+        '<div class="row-actions"><button class="btn pri" id="wf-approve">同意</button>' +
+        '<button class="btn danger" id="wf-reject">驳回</button><button class="btn" id="wf-cancel">取消</button>' +
+        '<button class="btn pri" id="wf-submit" hidden>确认执行</button></div>';
+      m.body.innerHTML = h;
+      var decision = '', executing = false, chosenNote = '';
+      var approve = m.body.querySelector('#wf-approve'), reject = m.body.querySelector('#wf-reject');
+      var note = m.body.querySelector('#wf-note'), message = m.body.querySelector('#wf-message');
+      var submit = m.body.querySelector('#wf-submit'), confirm = m.body.querySelector('#wf-confirm');
+      var cancel = m.body.querySelector('#wf-cancel'), x = m.el.querySelector('.modal-x');
+      function choose(value) {
+        if (executing) return;
+        chosenNote = note.value.trim();
+        if (value === 'reject' && !chosenNote) { message.textContent = '请填写驳回原因。'; note.focus(); return; }
+        decision = value; confirm.hidden = false;
+        confirm.textContent = '确认' + (decision === 'approve' ? '同意' : '驳回') + ' ' + t.bill_no + ' 的「' + t.node + '」审批？';
+        approve.hidden = reject.hidden = true; submit.hidden = false; note.readOnly = true; message.textContent = '';
+      }
+      approve.addEventListener('click', function () { choose('approve'); });
+      reject.addEventListener('click', function () { choose('reject'); });
+      cancel.addEventListener('click', function () {
+        if (executing) return;
+        if (decision) { decision=''; confirm.hidden=true; submit.hidden=true; approve.hidden=reject.hidden=false; note.readOnly=false; }
+        else m.close();
+      });
+      submit.addEventListener('click', function () {
+        if (!decision || executing || workflowBusy[aid]) return;
+        executing = workflowBusy[aid] = true;
+        submit.disabled = cancel.disabled = x.disabled = true; submit.textContent = '正在审批…';
+        api('/api/workflow/decide', {assignment_id:aid, decision:decision, note:chosenNote, confirm:'WORKFLOW'}).then(function (res) {
+          executing = workflowBusy[aid] = false;
+          x.disabled = false; submit.hidden = cancel.hidden = true;
+          loadWorkflow();
+          if (!res.ok) {
+            message.innerHTML = '<div class="banner err">审批未完成：' + esc((res.error || {}).message || '金蝶未确认审批成功') +
+              '</div><p class="hint">待办列表已刷新。请关闭本窗口，核对任务状态后再办理。</p>';
+            confirm.hidden = true; return;
+          }
+          m.close();
+          openModal('审批完成', '<div class="banner info">' + esc(t.bill_no) + ' 已' +
+            (decision === 'approve' ? '同意' : '驳回') + '，当前任务已完成。</div>');
+        }).catch(function () {
+          executing = workflowBusy[aid] = false; x.disabled=false; submit.hidden=cancel.hidden=true; confirm.hidden=true;
+          message.innerHTML = '<div class="banner warn">审批结果未确认，请刷新待办并核对金蝶审批记录，勿重复操作。</div>';
+          loadWorkflow();
+        });
+      });
+    }).catch(function () { m.body.innerHTML = '<div class="banner err">读取审批单据失败，请关闭后重试。</div>'; });
   }
 
   /* ---- 页 3：发票云配置（公司级 API Key；按租户隔离；支持多家开票主体） ---------------- */
@@ -3258,7 +3565,7 @@
                            openApplyBill: function (fid) { R.pendingFocus = fid; gotoView("bills"); } };
 
   var TITLES = { expense: "费用报销看板", mgmt: "财务健康与风险", sales: "销售与回款表现",
-                 cash: "现金流预测", apply: "申请单", bills: "报销单",
+                 cash: "现金流预测", apply: "申请单", bills: "报销单", workflow: "待我审批",
                  pzcfg: "发票云配置", adm: "租户管理", orgs: "组织与权限", source: "数据源与口径",
                  guide: "使用说明" };
   var DASH_VIEWS = ["expense", "mgmt", "sales", "cash"];
@@ -3313,7 +3620,7 @@
           x.classList.toggle("on", x === a);
           if (x === a) x.setAttribute("aria-current", "page"); else x.removeAttribute("aria-current");
         });
-        ["expense", "mgmt", "sales", "cash", "apply", "bills", "pzcfg", "orgs", "source", "adm", "guide"]
+        ["expense", "mgmt", "sales", "cash", "apply", "bills", "workflow", "pzcfg", "orgs", "source", "adm", "guide"]
           .forEach(function (k) {
             $("v-" + k).classList.toggle("on", k === v);
           });
@@ -3321,7 +3628,7 @@
         $("ttl").textContent = TITLES[v];
         updateRefreshStatus();
         if ($("breadcrumb")) $("breadcrumb").textContent =
-          (v === "apply" || v === "bills" || v === "pzcfg") ? "报销管理"
+          (v === "apply" || v === "bills" || v === "workflow" || v === "pzcfg") ? "报销管理"
             : v === "adm" ? "系统"
             : (v === "expense" || v === "mgmt" || v === "sales" || v === "cash") ? "经营概览"
             : "数据管理";
@@ -3338,6 +3645,7 @@
         // 报销管理两页都是"办理中"的页面，每次进入都重新拉一次
         if (v === "apply") loadApply();
         if (v === "bills") loadBillsPage();
+        if (v === "workflow") loadWorkflow();
         if (v === "pzcfg") loadPzCfg();
         if (v === "adm") loadAdm();
       });
@@ -3363,6 +3671,7 @@
       if (S.view === "cash") loadCash(true);
       if (S.view === "apply") loadApply();
       if (S.view === "bills") loadBillsPage();
+      if (S.view === "workflow") loadWorkflow();
     });
     $("btn-logout").addEventListener("click", function () {
       api("/api/logout", {}).then(function (r) {

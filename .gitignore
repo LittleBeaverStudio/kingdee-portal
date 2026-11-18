@@ -16,3 +16,5 @@ portal_audit.log
 portal_config.json
 .DS_Store
 Thumbs.db
+*.bak
+*.bak-*

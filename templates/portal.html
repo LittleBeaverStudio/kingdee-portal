@@ -163,6 +163,7 @@
       <a href="#sales" data-v="sales"><svg class="icon"><use href="#i-send"/></svg><span class="nav-label">销售与回款表现</span><svg class="icon nav-arrow"><use href="#i-arrow"/></svg></a>
       <a href="#cash" data-v="cash"><svg class="icon"><use href="#i-wallet"/></svg><span class="nav-label">现金流预测</span><svg class="icon nav-arrow"><use href="#i-arrow"/></svg></a>
       <div class="grp">报销管理</div>
+      <a href="#workflow" data-v="workflow"><svg class="icon"><use href="#i-file"/></svg><span class="nav-label">待我审批</span><svg class="icon nav-arrow"><use href="#i-arrow"/></svg></a>
       <a href="#apply" data-v="apply"><svg class="icon"><use href="#i-send"/></svg><span class="nav-label">申请单</span><svg class="icon nav-arrow"><use href="#i-arrow"/></svg></a>
       <a href="#bills" data-v="bills"><svg class="icon"><use href="#i-wallet"/></svg><span class="nav-label">报销单</span><svg class="icon nav-arrow"><use href="#i-arrow"/></svg></a>
       <a href="#pzcfg" data-v="pzcfg"><svg class="icon"><use href="#i-lock"/></svg><span class="nav-label">发票云配置</span><svg class="icon nav-arrow"><use href="#i-arrow"/></svg></a>
@@ -189,7 +190,7 @@
       <div id="org-panel" hidden><div class="card"><div class="panel-head"><h3>筛选组织</h3><button class="btn" id="btn-orgs-close">完成</button></div><div class="chips" id="org-chips"></div><div class="hint" id="org-trace"></div><div class="hint" id="org-banner" hidden></div></div></div>
       <div class="prog" id="prog" role="status" hidden><div class="track"><i id="prog-bar"></i></div><div class="txt" id="prog-txt">准备中…</div></div>
       <div id="err-box" role="alert" hidden></div>
-      <section class="view on" id="v-expense" aria-label="费用报销看板"></section><section class="view" id="v-mgmt" aria-label="财务健康与风险"></section><section class="view" id="v-sales" aria-label="销售与回款表现"></section><section class="view" id="v-cash" aria-label="现金流预测"></section><section class="view" id="v-apply" aria-label="申请单"></section><section class="view" id="v-bills" aria-label="报销单"></section><section class="view" id="v-pzcfg" aria-label="发票云配置"></section><section class="view" id="v-orgs" aria-label="组织与权限"></section><section class="view" id="v-source" aria-label="数据源与口径"></section><section class="view" id="v-adm" aria-label="租户管理"></section><section class="view" id="v-guide" aria-label="使用说明">
+      <section class="view on" id="v-expense" aria-label="费用报销看板"></section><section class="view" id="v-mgmt" aria-label="财务健康与风险"></section><section class="view" id="v-sales" aria-label="销售与回款表现"></section><section class="view" id="v-cash" aria-label="现金流预测"></section><section class="view" id="v-apply" aria-label="申请单"></section><section class="view" id="v-bills" aria-label="报销单"></section><section class="view" id="v-workflow" aria-label="待我审批"></section><section class="view" id="v-pzcfg" aria-label="发票云配置"></section><section class="view" id="v-orgs" aria-label="组织与权限"></section><section class="view" id="v-source" aria-label="数据源与口径"></section><section class="view" id="v-adm" aria-label="租户管理"></section><section class="view" id="v-guide" aria-label="使用说明">
   <div class="guide-layout">
     <div class="guide-hero"><div><span class="eyebrow">WORKSPACE GUIDE</span><h2>从看见数据，到采取行动。</h2><p>以本人金蝶权限为边界，连接费用、销售、财务风险与现金流。</p></div><span class="guide-version">使用说明 · v{{ version }}</span></div>
     <div class="guide-grid">

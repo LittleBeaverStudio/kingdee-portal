@@ -126,6 +126,7 @@ class KingdeeClient:
         self.session = requests.Session()
         self.session.headers.update({"Content-Type": "application/json"})
         self.login_name = ""
+        self.user_id = ""
         self.limiter = RateLimiter(per_minute)
         self.api_calls = 0
         self.rate_retries = 0
@@ -248,6 +249,8 @@ class KingdeeClient:
         if not isinstance(data, dict):
             raise KdError("登录返回结构异常", "登录")
         if data.get("LoginResultType") == 1:
+            uid = str((data.get("Context") or {}).get("UserId") or "")
+            self.user_id = uid if uid.isdigit() and int(uid) > 0 else ""
             self.login_name = str(self._username or "")
             self._log("登录成功")
             return True

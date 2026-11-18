@@ -3,6 +3,42 @@
 All notable changes to the Kingdee Portal DSH plugin are documented here.
 Format based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.1.0] - 2026-11-18
+
+### Added
+- Ported four feature batches from the public edition (v1.6.1–v1.6.4), keeping
+  all DSH local-mode customizations (session isolation, CSRF, example-config
+  fallback, iframe embedding, de-identified placeholders):
+  - **Reimbursement payment rules** (`reimburse_payment.py`): payment difference
+    derived from the source request's real borrow balance; employee explicitly
+    chooses keep-vs-refund when the reimbursement is below the balance. A
+    read-only payment preview plus signed-snapshot submission guards every write.
+  - **Request close** (`/api/reimburse/request-close`): close an approved
+    request via Kingdee's official `BillClose` operation, with owner identity,
+    CSRF, write gate and post-close read-back.
+  - **My approvals** (`workflow_actions.py`, `/api/workflow/*`): view and
+    approve/reject expense & travel requests/reimbursements assigned to the
+    logged-in user. Audited, single-shot, no auto-retry; portal notes are not
+    written into Kingdee approval comments.
+  - **Bill lists with pagination** (`bill_lists.py`, `list_filters.py`):
+    apply/bill lists read all matching rows in 1000-row batches, stable sort,
+    20/50/100 per page, compact filter bar, full-result statistics, and a
+    60-second per-session snapshot cache.
+- Added tests: `test_reimburse_payment.py`, `test_request_close.py`,
+  `test_workflow.py`, `test_bill_lists.py`, updated `test_reimburse_push.py`.
+
+### Changed
+- License changed from MIT to **LittleBeaverStudio No-Resale License 1.0**
+  (`LICENSE`, `package.json` `license: SEE LICENSE IN LICENSE`). Personal and
+  internal business use remain free; resale is not permitted.
+- `package.json` files whitelist now includes the four new modules;
+  `portal_config.example.json` adds `warmup_interval_minutes` / `warmup_views`
+  and carries version 1.1.0.
+
+### Tests
+- 117 unittest cases pass; JS syntax check, full Python compile and the public
+  data-leak scanner (`scripts/check_public.py`) all pass.
+
 ## [1.0.4] - 2026-11-17
 
 ### Fixed

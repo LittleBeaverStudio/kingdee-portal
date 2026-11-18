@@ -21,6 +21,12 @@ class PushTests(unittest.TestCase):
         self.client_patch = patch.object(portal_actions, "get_client", return_value=(self.kd, self.rl, ""))
         self.client_patch.start()
         self.addCleanup(self.client_patch.stop)
+        self.guard_patch = patch.object(portal_actions, '_push_request_guard')
+        self.guard_patch.start()
+        self.addCleanup(self.guard_patch.stop)
+        self.payment_patch = patch.object(portal_actions, '_set_nonborrow_payment', return_value='')
+        self.payment_patch.start()
+        self.addCleanup(self.payment_patch.stop)
 
     def test_travel_push_returns_id_and_reads_correct_form_separately(self):
         self.kd._post.return_value = {"Result": {"ResponseStatus": {
@@ -98,6 +104,71 @@ class PushTests(unittest.TestCase):
                                         'TOCONTACTUNIT': {'Number': '123'}}]
         warning = portal_actions._inherit_contact(self.kd, 'source', 'target', '222', 'ETR123', '333')
         self.assertIn('不匹配', warning)
+        self.kd.save.assert_not_called()
+
+    def test_nonborrow_payment_is_written_and_verified(self):
+        self.payment_patch.stop()
+        self.kd.view.side_effect = [
+            {'BillNo': 'ETR123', 'IsBorrow': False},
+            {'DocumentStatus': 'Z', 'RequestType': '0', 'ER_ExpenseReimbEntry': [
+                {'IsFromBorrow': False, 'BorrowAmount': 0}], 'FSrcEntry': []},
+            {'RequestType': '1'},
+        ]
+        self.kd.save.return_value = (True, {})
+        warning = portal_actions._set_nonborrow_payment(self.kd, 'source', 'target', '222', 'ETR123', '333')
+        self.assertEqual(warning, '')
+        self.kd.save.assert_called_once_with('target', {'FID': '333', 'FRequestType': '1'},
+                                             need_update=['FRequestType'], retries=1, validate_flag=False)
+
+    def test_borrow_case_is_never_guessed(self):
+        self.payment_patch.stop()
+        self.kd.view.return_value = {'BillNo': 'ETR123', 'IsBorrow': True}
+        warning = portal_actions._set_nonborrow_payment(self.kd, 'source', 'target', '222', 'ETR123', '333')
+        self.assertEqual(warning, '')
+        self.kd.save.assert_not_called()
+
+    def test_precheck_previews_settlement_without_writing(self):
+        base = {'recv_rows': [{'amount': 10}], 'recv_total': 10, 'amount': 10,
+                'req_amount': 10, 'status': 'A', 'request_type': '0', 'payment_basis': 'nonborrow'}
+        self.kd.precheck.return_value = {'blocks': []}
+        with patch.object(portal_actions, 'get_bill', return_value=base), \
+             patch.object(portal_actions, 'payment_preview', return_value={'needs_choice': False}):
+            check = portal_actions.precheck('', '333', True)
+        self.assertTrue(check['ok'])
+        self.kd.save.assert_not_called()
+        base.update(request_type='1', payment_basis='borrow')
+        with patch.object(portal_actions, 'get_bill', return_value=base), \
+             patch.object(portal_actions, 'payment_preview', side_effect=ValueError('借款余额不明')):
+            check = portal_actions.precheck('', '333', True)
+        self.assertFalse(check['ok'])
+        self.assertIn('借款', check['issues'][0])
+
+    def test_precheck_respects_helper_blocks(self):
+        info = {'recv_rows': [{'amount': 10}], 'recv_total': 10, 'amount': 10,
+                'req_amount': 0, 'status': 'A', 'request_type': '1', 'payment_basis': 'nonborrow'}
+        self.kd.precheck.return_value = {'blocks': ['跨组织发票']}
+        with patch.object(portal_actions, 'get_bill', return_value=info), \
+             patch.object(portal_actions, 'payment_preview', return_value={}):
+            check = portal_actions.precheck('', '333', True)
+        self.assertFalse(check['ok'])
+        self.assertIn('跨组织发票', check['gate_message'])
+
+    def test_payment_preview_refuses_other_pending_bill(self):
+        bill = {'DocumentStatus': 'A', 'ExpAmountSum': 6, 'ER_ExpenseReimbEntry': [{
+            'Id': 20, 'ExpenseAmount': 6, 'SourceBillType': 'ER_ExpenseRequest', 'SourceBillNo': 'test',
+            'FEntity_Link': [{'SBillId': '100', 'SId': '200'}]}]}
+        source = {'BillNo': 'test', 'DocumentStatus': 'C', 'IsBorrow': True, 'FEntity': [{'Id': 200, 'TurnoverAmount': 8,
+                                                 'ActualBorrowAmount': 8}]}
+        self.kd.view.side_effect = [bill, source]
+        self.kd.query.return_value = [[301, 'A', '100', '200']]
+        with self.assertRaisesRegex(ValueError, '其他未完成报销单'):
+            portal_actions.payment_preview('', '300', False)
+        self.kd.save.assert_not_called()
+
+    def test_payment_preview_rejects_missing_link(self):
+        self.kd.view.return_value = {'DocumentStatus': 'A', 'ER_ExpenseReimbEntry': [{}]}
+        with self.assertRaisesRegex(ValueError, '唯一来源'):
+            portal_actions.payment_preview('', '300', False)
         self.kd.save.assert_not_called()
 
 

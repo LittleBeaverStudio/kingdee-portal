@@ -38,6 +38,9 @@ from invoice_config import merge_org_rows, org_codes
 import metrics_mgmt_full
 import metrics_sales
 import portal_actions
+import workflow_actions
+import list_filters
+import bill_lists
 import store
 from kd_client import KdError, KingdeeClient, normalize_base_url
 
@@ -1433,7 +1436,7 @@ def _reset_actor():
 
     ⚠️ 必须做：Flask 的线程是复用的，不清空的话上一个请求的身份会被下一个请求继承（串号）。
     """
-    if request.path.startswith("/api/reimburse"):
+    if request.path.startswith(("/api/reimburse", "/api/workflow")):
         portal_actions.use_credentials(None)
     if request.method == "POST" and request.path in (
         "/api/reimburse/upload", "/api/reimburse/piazzone-config", "/api/reimburse/piazzone-test"
@@ -1509,12 +1512,14 @@ def api_reimburse_requests():
         return jsonify({"ok": False, "error": exc.to_dict()}), 200
     try:
         orgs = [str(x) for x in (request.args.getlist("org") or []) if str(x).strip()]
-        rows = portal_actions.list_pushable(str(CFG.get("expense_skill_dir") or ""),
-                                            orgs=orgs or None)
-        return jsonify({"ok": True, "rows": rows,
+        result = bill_lists.page(str(CFG.get("expense_skill_dir") or ""), True,
+            list_filters.parse(request.args), [] if request.args.get("scope_empty") == "1" else orgs or None,
+            int(request.args.get("page", 1)), int(request.args.get("page_size", 20)), cache=s,
+            refresh=request.args.get("refresh") == "1")
+        return jsonify({"ok": True, **result,
                         "operator": s["info"].get("username", "")}), 200
-    except Exception as exc:                              # noqa: BLE001
-        return _err("读取申请单", repr(exc)[:300])
+    except (Exception, SystemExit) as exc:
+        return _err("读取申请单", str(exc)[:350])
 
 
 @app.get("/api/reimburse/bills")
@@ -1522,18 +1527,88 @@ def api_reimburse_bills():
     """报销单列表 + 状态（提交后看进度用）。"""
     try:
         _write_gate()
-        _bind_actor(_require_session())
+        s = _require_session()
+        _bind_actor(s)
     except KdError as exc:
         return jsonify({"ok": False, "error": exc.to_dict()}), 200
     try:
         orgs = [str(x) for x in (request.args.getlist("org") or []) if str(x).strip()]
-        rows = portal_actions.list_bills(
-            str(CFG.get("expense_skill_dir") or ""), orgs=orgs or None,
-            proposer=(request.args.get("proposer") or "").strip(),
-            only_pending=request.args.get("pending") in ("1", "true", "True"))
-        return jsonify({"ok": True, "rows": rows}), 200
-    except Exception as exc:                              # noqa: BLE001
-        return _err("读取报销单列表", repr(exc)[:300])
+        filters = list_filters.parse(request.args)
+        if request.args.get("pending") in ("1", "true", "True"):
+            filters["status"] = "B"
+        if request.args.get("proposer"):
+            filters["person"] = str(request.args["proposer"]).strip()
+        result = bill_lists.page(str(CFG.get("expense_skill_dir") or ""), False, filters,
+            [] if request.args.get("scope_empty") == "1" else orgs or None,
+            int(request.args.get("page", 1)), int(request.args.get("page_size", 20)), cache=s,
+            refresh=request.args.get("refresh") == "1")
+        return jsonify({"ok": True, **result}), 200
+    except (Exception, SystemExit) as exc:
+        return _err("读取报销单列表", str(exc)[:350])
+
+
+def _workflow_actor():
+    _write_gate()
+    s = _require_session()
+    actor = _bind_actor(s)
+    uid = workflow_actions.user_id(getattr(s.get("client"), "user_id", ""))
+    return actor, uid
+
+
+@app.get("/api/workflow/tasks")
+def api_workflow_tasks():
+    try:
+        _, uid = _workflow_actor()
+        orgs = [str(x) for x in request.args.getlist("org") if str(x).strip()]
+        rows = workflow_actions.list_tasks(str(CFG.get("expense_skill_dir") or ""), uid, orgs=orgs or None)
+        return jsonify({"ok": True, "rows": rows[:200], "has_more": len(rows) > 200})
+    except KdError as exc:
+        return jsonify({"ok": False, "error": exc.to_dict()})
+    except (Exception, SystemExit) as exc:
+        return _err("读取待办", str(exc)[:350])
+
+
+@app.get("/api/workflow/task/<aid>")
+def api_workflow_detail(aid):
+    try:
+        _, uid = _workflow_actor()
+        return jsonify({"ok": True, **workflow_actions.detail(str(CFG.get("expense_skill_dir") or ""), uid, aid)})
+    except KdError as exc:
+        return jsonify({"ok": False, "error": exc.to_dict()})
+    except (Exception, SystemExit) as exc:
+        return _err("读取审批单据", str(exc)[:350])
+
+
+@app.post("/api/workflow/decide")
+def api_workflow_decide():
+    _check_csrf()
+    actor = ""
+    aid = ""
+    try:
+        actor, uid = _workflow_actor()
+        body = request.get_json(silent=True) or {}
+        if body.get("confirm") != "WORKFLOW":
+            return _err("工作流审批", "请确认本次同意或驳回操作")
+        aid = workflow_actions.assignment_id(body.get("assignment_id"))
+        # Notes are kept in the portal audit; the standard API does not document
+        # an opinion parameter. Never pretend an unsupported field reached Kingdee.
+        note = str(body.get("note") or "").strip()
+        if len(note) > 1000:
+            return _err("工作流审批", "审批备注不能超过1000字")
+        decision = str(body.get("decision") or "")
+        if decision == "reject" and not note:
+            return _err("工作流审批", "请填写驳回原因（留存在门户审批记录）")
+        _audit("工作流-发起审批", {"assignment_id": aid, "decision": decision, "note": note}, actor)
+        result = workflow_actions.decide(str(CFG.get("expense_skill_dir") or ""), uid, aid, decision)
+        _audit("工作流-审批结果", {**result, "note": note}, actor)
+        if not result.get("ok"):
+            return _err("工作流审批", result.get("message") or "金蝶拒绝审批")
+        return jsonify({"ok": True, "result": result})
+    except KdError as exc:
+        return jsonify({"ok": False, "error": exc.to_dict()})
+    except (Exception, SystemExit) as exc:
+        _audit("工作流-审批异常", {"assignment_id": aid, "error": str(exc)[:350]}, actor)
+        return _err("工作流审批", str(exc)[:350])
 
 
 @app.get("/api/reimburse/bill/<fid>")
@@ -1597,6 +1672,31 @@ def api_reimburse_delete():
     except Exception as exc:                              # noqa: BLE001
         _audit("报销-删除", {"fid": fid, "error": repr(exc)[:200]}, actor)
         return _err("删除报销单", repr(exc)[:300])
+
+
+@app.post("/api/reimburse/request-close")
+def api_reimburse_request_close():
+    _check_csrf()
+    actor = ""
+    try:
+        _write_gate()
+        actor = _bind_actor(_require_session())
+        body = request.get_json(silent=True) or {}
+        if body.get("confirm") != "CLOSE":
+            return _err("关闭申请单", "关闭后不能继续下推报销单，请确认后再操作")
+        fid = str(body.get("fid") or "").strip()
+        travel = body.get("is_travel") is True
+        res = portal_actions.close_request(str(CFG.get("expense_skill_dir") or ""), fid, travel,
+                                            str(body.get("bill_no") or "").strip())
+        _audit("申请单-关闭", res, actor)
+        if not res.get("ok"):
+            return _err("关闭申请单", res.get("message") or "金蝶拒绝关闭")
+        return jsonify({"ok": True, "result": res}), 200
+    except KdError as exc:
+        return jsonify({"ok": False, "error": exc.to_dict()}), 200
+    except (Exception, SystemExit) as exc:
+        _audit("申请单-关闭", {"error": str(exc)[:250]}, actor)
+        return _err("关闭申请单", str(exc)[:350])
 
 
 @app.post("/api/reimburse/push")
@@ -1730,6 +1830,20 @@ def api_reimburse_precheck(fid):
         return _err("提交前体检", repr(exc)[:300])
 
 
+@app.get("/api/reimburse/payment/<fid>")
+def api_reimburse_payment(fid):
+    try:
+        _write_gate()
+        _bind_actor(_require_session())
+        travel = request.args.get("travel") in ("1", "true", "True")
+        result = portal_actions.payment_preview(str(CFG.get("expense_skill_dir") or ""), fid, travel)
+        return jsonify({"ok": True, "payment": result}), 200
+    except KdError as exc:
+        return jsonify({"ok": False, "error": exc.to_dict()}), 200
+    except (Exception, SystemExit) as exc:
+        return _err("核对退款/付款", str(exc)[:350])
+
+
 @app.post("/api/reimburse/submit")
 def api_reimburse_submit():
     """提交单据（进审批流）。**必须显式二次确认**：body.confirm == "SUBMIT"。"""
@@ -1749,14 +1863,12 @@ def api_reimburse_submit():
             return _err("二次确认", "提交会让单据进入审批流，请再次确认",
                         "前端弹确认框后再提交")
         skill = str(CFG.get("expense_skill_dir") or "")
-        chk = portal_actions.precheck(skill, fid, travel)
-        if not chk.get("ok"):
-            _audit("报销-提交被闸门拦下", {"fid": fid, "issues": chk.get("issues")}, actor)
-            return _err("提交前体检未通过",
-                        "；".join(chk.get("issues") or []) or chk.get("gate_message", ""))
-        res = portal_actions.submit(skill, fid, travel)
+        res = portal_actions.submit(skill, fid, travel,
+                                    str(body.get("payment_choice") or ""),
+                                    str(body.get("payment_snapshot") or ""))
         _audit("报销-提交", {"fid": fid, "ok": res.get("ok"),
-                             "before": res.get("before_status"), "after": res.get("after_status")}, actor)
+                             "before": res.get("before_status"), "after": res.get("after_status"),
+                             "payment": res.get("payment"), "warning": res.get("warning")}, actor)
         if not res.get("ok"):
             return _err("提交", res.get("message") or "提交失败")
         return jsonify({"ok": True, "result": res}), 200
@@ -2567,13 +2679,17 @@ if not LOCAL_MODE and CFG.get("warmup_auto", True) and os.environ.get("PORTAL_NO
 
 
 def main():
+    # ★ 2026-11-16：云平台注入 PORT 并要求绑 0.0.0.0；写死 8765/127.0.0.1 会导致发布失败
+    _env_port = os.environ.get("PORT")
+    _env_host = os.environ.get("HOST")
+    host = _env_host or ("0.0.0.0" if _env_port else str(CFG["host"]))
+    port = int(_env_port) if _env_port else int(CFG["port"])
     print("=" * 66)
-    print("  金蝶经营门户 · 本地试验版")
-    print(f"  地址：http://{CFG['host']}:{CFG['port']}")
-    print("  仅监听本机；金蝶账号密码不落盘，只用于建立会话。")
+    print("  金蝶经营门户")
+    print(f"  监听：http://{host}:{port}" + ("（平台注入 PORT）" if _env_port else "（本地）"))
+    print("  金蝶账号密码不落盘，只用于建立会话。")
     print("=" * 66)
-    app.run(host=CFG["host"], port=CFG["port"], debug=bool(CFG.get("debug")),
-            threaded=True)
+    app.run(host=host, port=port, debug=bool(CFG.get("debug")), threaded=True)
 
 
 if __name__ == "__main__":

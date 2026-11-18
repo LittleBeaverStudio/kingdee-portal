@@ -309,7 +309,7 @@ def audit(path: str, action: str, detail: dict, actor: str = "") -> None:
 
 # ────────────────────────── 只看：可下推的申请单 ──────────────────────────
 def list_pushable(configured: str = "", orgs=None, staff_name: str = "",
-                  include_borrow: bool = False, limit: int = 200) -> list:
+                  include_borrow: bool = True, limit: int = 200, filters=None) -> list:
     """列出「可以下推报销单」的费用/出差申请单。
 
     判据（与 skill 口径一致）：已审核(`C`) + 未作废 + 关闭状态=`A`(未关闭)。
@@ -321,13 +321,19 @@ def list_pushable(configured: str = "", orgs=None, staff_name: str = "",
     out = []
     for form, kind in (("ER_ExpenseRequest", "费用申请"),
                        ("ER_ExpenseRequest_Travel", "出差申请")):
+        if filters and filters.get("kind") and (filters["kind"] == "travel") != (kind == "出差申请"):
+            continue
+        from list_filters import conditions
+        where = ["FDocumentStatus='C'", "FCloseStatus='A'"] + conditions(
+            filters, person_field="FStaffID.FName", date_field="FDate", orgs=orgs, application=True)
         try:
             rows = kd.query(form, fields,
-                            "FDocumentStatus='C' and FCloseStatus='A'", top=limit,
+                            " AND ".join(where), top=limit,
                             order="FDate desc")
         except Exception:                                 # noqa: BLE001
             continue
         idx = {f: i for i, f in enumerate(fields.split(","))}
+        form_rows = []
         for r in rows or []:
             def g(k):
                 i = idx.get(k)
@@ -337,10 +343,10 @@ def list_pushable(configured: str = "", orgs=None, staff_name: str = "",
                 continue
             if staff_name and str(g("FStaffID.FName") or "").strip() != staff_name:
                 continue
-            is_borrow = str(g("FIsBorrow")).strip().lower() == "true"
+            is_borrow = str(g("FIsBorrow")).strip().lower() in ("true", "1")
             if is_borrow and not include_borrow:
                 continue
-            out.append({
+            form_rows.append({
                 "fid": g("FID"), "bill_no": str(g("FBillNo") or "").strip(),
                 "date": str(g("FDate") or "")[:10], "kind": kind,
                 "staff": str(g("FStaffID.FName") or "").strip(),
@@ -349,19 +355,109 @@ def list_pushable(configured: str = "", orgs=None, staff_name: str = "",
                 "is_borrow": is_borrow,
                 "reason": str(g("FReason") or "").strip(),
             })
+        # 金额字段在明细中：先选本页单据，再批量读明细，避免多明细重复表头金额。
+        ids = sorted({str(r["fid"]) for r in form_rows if str(r["fid"]).isdigit()})
+        if ids:
+            amounts = kd.query(form, "FID,FEntity_FEntryID,FPUSHREIMBAMT",
+                               "FID in (%s)" % ",".join(ids), top=10001)
+            if len(amounts) >= 10001:
+                raise RuntimeError("申请单明细过多，无法完整读取已下推金额，请缩小查询范围")
+            from decimal import Decimal
+            totals, seen, present = {}, set(), set()
+            for row in amounts:
+                key = (str(row[0]), str(row[1]))
+                if key in seen:
+                    continue
+                seen.add(key)
+                present.add(key[0])
+                value = Decimal(str(row[2]))
+                if not value.is_finite():
+                    raise RuntimeError("已下推报销单金额异常，请在金蝶核对")
+                totals[key[0]] = totals.get(key[0], Decimal("0")) + value
+            for item in form_rows:
+                if str(item["fid"]) not in present:
+                    raise RuntimeError("无法读取申请单的已下推报销单金额，请刷新重试")
+                item["pushed_reimb_amount"] = float(totals[str(item["fid"])])
+        out.extend(form_rows)
     out.sort(key=lambda x: (x["date"], x["fid"]), reverse=True)
     return out[:limit]
 
 
+def _request_state(kd, form: str, fid: str, bill_no: str = "") -> dict:
+    """按内码核对来源；列表打开后可能已被关闭，写入前必须重读。"""
+    if not str(fid).isdigit():
+        raise ValueError("申请单内码无效，请刷新申请单列表")
+    source = kd.view(form, str(fid))
+    if bill_no and str(source.get("BillNo") or "").strip() != bill_no:
+        raise ValueError("申请单编号与内码不匹配，请刷新列表")
+    return source
+
+
+def _check_request_open(source: dict) -> None:
+    if str(source.get("DocumentStatus") or "").strip() != "C":
+        raise ValueError("申请单未审核，不能下推报销单或关闭")
+    if str(source.get("FCancelStatus") or source.get("CancelStatus") or "").strip() == "B":
+        raise ValueError("申请单已作废，不能下推报销单或关闭")
+    closed = str(source.get("FCloseStatus") or "").strip()
+    if closed == "B":
+        raise ValueError("申请单已关闭，不能继续下推报销单")
+    if closed != "A":
+        raise ValueError("无法确认申请单关闭状态，请刷新列表或到金蝶核对")
+
+
+def close_request(configured: str, fid: str, is_travel: bool = False, bill_no: str = "") -> dict:
+    """调用金蝶整单关闭操作，保留其插件/权限/借款业务校验，回读关闭状态。"""
+    kd, rl, _ = get_client(configured)
+    form = "ER_ExpenseRequest_Travel" if is_travel else "ER_ExpenseRequest"
+    source = _request_state(kd, form, fid, bill_no)
+    number = str(source.get("BillNo") or "").strip()
+    if str(source.get("FCloseStatus") or "").strip() == "B":
+        return {"ok": True, "fid": str(fid), "bill_no": number, "already_closed": True,
+                "close_status": "B"}
+    _check_request_open(source)
+    uncertain = False
+    try:
+        raw = kd._post(rl.KSVC_SUFFIX + "ExecuteOperation.common.kdsvc", {
+            "formid": form, "opNumber": "BillClose",
+            "data": json.dumps({"Ids": str(fid), "Numbers": []}, ensure_ascii=False)},
+            retries=1, timeout=90)
+        status = (raw.get("Result") or {}).get("ResponseStatus") or {}
+        if not status.get("IsSuccess"):
+            message = "；".join(str(e.get("Message") or "") for e in (status.get("Errors") or []))
+            return {"ok": False, "fid": str(fid), "bill_no": number,
+                    "message": message or "金蝶未确认关闭成功，请刷新申请单列表核对"}
+    except (Exception, SystemExit):
+        uncertain = True
+    try:
+        after = _request_state(kd, form, fid, number)
+    except (Exception, SystemExit) as exc:
+        raise RuntimeError("关闭结果未确认，请先刷新申请单列表或到金蝶核对，勿重复操作") from exc
+    if str(after.get("FCloseStatus") or "").strip() != "B":
+        raise RuntimeError("关闭结果未确认，请先刷新申请单列表或到金蝶核对，勿重复操作")
+    return {"ok": True, "fid": str(fid), "bill_no": number, "close_status": "B",
+            "confirmed_after_timeout": uncertain}
+
+
+def _push_request_guard(kd, form: str, source_fid: str, number: str) -> None:
+    if not source_fid:
+        rows = kd.query(form, "FID,FBillNo", "FBillNo='%s'" % number.replace("'", "''"), top=2)
+        if len(rows) != 1 or str(rows[0][1] or "").strip() != number:
+            raise ValueError("无法确认申请单，请刷新列表后下推")
+        source_fid = str(rows[0][0])
+    _check_request_open(_request_state(kd, form, source_fid, number))
+
+
 # ────────────────────────── 写：下推 ──────────────────────────
 def push(configured: str, bill_no_or_fid: str, is_travel: bool = False, source_fid: str = "") -> dict:
-    """下推生成报销单。返回 {fid, bill_no, warning}。"""
+    """下推生成报销单。返回 {fid, bill_no, status, amount}。"""
     kd, rl, _skill = get_client(configured)
     src_form = "ER_ExpenseRequest_Travel" if is_travel else "ER_ExpenseRequest"
     tgt_form = "ER_ExpReimbursement_Travel" if is_travel else FORM_EXPENSE
+    _push_request_guard(kd, src_form, source_fid, str(bill_no_or_fid))
     payload = {"formid": src_form, "data": json.dumps({
         "Ids": "", "Numbers": [str(bill_no_or_fid)], "RuleId": "",
         "TargetFormId": tgt_form, "IsEnableDefaultRule": "true",
+        # 发票尚未上传时正式保存可能不通过；允许金蝶暂存草稿供后续办理。
         "IsDraftWhenSaveFail": "true", "CustomParams": {}}, ensure_ascii=False)}
     # 下推是非幂等写操作：超时后金蝶可能已建单，不能沿用 _post 的自动重试。
     try:
@@ -386,7 +482,43 @@ def push(configured: str, bill_no_or_fid: str, is_travel: bool = False, source_f
     result = {"fid": fid, "bill_no": str(succ[0].get("Number") or "")}
     result["warning"] = _inherit_contact(kd, src_form, tgt_form, str(source_fid or ""),
                                          str(bill_no_or_fid), fid)
+    payment_warning = _set_nonborrow_payment(kd, src_form, tgt_form, str(source_fid or ""),
+                                             str(bill_no_or_fid), fid)
+    result["warning"] = " ".join(x for x in (result["warning"], payment_warning) if x)
     return result
+
+
+def _set_nonborrow_payment(kd, src_form, tgt_form, source_fid, source_number, target_fid):
+    """Only set payment when both the source and generated entries prove no loan exists."""
+    warning = "报销单已生成，但付款类型未能自动确认，请在金蝶核对后再提交。"
+    try:
+        if not source_fid:
+            return warning
+        source = kd.view(src_form, source_fid)
+        if str(source.get("BillNo") or "").strip() != source_number:
+            return warning
+        if str(source.get("IsBorrow")).strip().lower() not in ("false", "0"):
+            return ""  # 借款在提交时按实时余额计算，余额有剩余时请员工选择处理方式。
+        target = kd.view(tgt_form, target_fid)
+        entries = target.get("ER_ExpenseReimbEntry") or []
+        if "FSrcEntry" not in target or not entries or any("BorrowAmount" not in e
+                              or str(e.get("IsFromBorrow")).strip().lower() not in ("false", "0")
+                              or float(e.get("BorrowAmount") or 0) != 0 for e in entries):
+            return warning
+        if any(float(e.get("FTurnoverAmount") or 0) != 0 or str(e.get("FSrcBillNo") or "").strip()
+               for e in (target.get("FSrcEntry") or [])):
+            return warning
+        if str(target.get("RequestType")) == "1":
+            return ""
+        if str(target.get("DocumentStatus") or "").upper() not in ("Z", "A", "D"):
+            return warning
+        ok, _ = kd.save(tgt_form, {"FID": target_fid, "FRequestType": "1"},
+                        need_update=["FRequestType"], retries=1, validate_flag=False)
+        if ok and str(kd.view(tgt_form, target_fid).get("RequestType")) == "1":
+            return ""
+    except (Exception, SystemExit):
+        pass
+    return warning
 
 
 def _inherit_contact(kd, src_form: str, tgt_form: str, source_fid: str,
@@ -461,6 +593,14 @@ def get_bill(configured: str, bill_fid: str, is_travel: bool = False) -> dict:
         "fid": bill_fid,
         "bill_no": str(o.get("BillNo") or "").strip(),
         "status": str(o.get("DocumentStatus") or "").strip(),
+        "request_type": str(o.get("RequestType") if o.get("RequestType") is not None else ""),
+        "payment_basis": ("unknown" if "FSrcEntry" not in o or not ents or any(
+                              "IsFromBorrow" not in e or "BorrowAmount" not in e for e in ents)
+                          else "borrow" if any(str(e.get("IsFromBorrow")).strip().lower() not in ("false", "0")
+                                               or float(e.get("BorrowAmount") or 0) != 0 for e in ents)
+                          or any(float(e.get("FTurnoverAmount") or 0) != 0
+                                 or str(e.get("FSrcBillNo") or "").strip() for e in (o.get("FSrcEntry") or []))
+                          else "nonborrow"),
         # ★ 组织必须带出来：上传发票建收票单时要用它做来源/结算组织，
         #   前端也用它做默认值（早前硬编码 101 是 bug）
         "org_no": str((o.get("OrgID") or {}).get("Number") or "").strip(),
@@ -689,20 +829,29 @@ def set_amount(configured: str, bill_fid: str, amount: float,
 
 
 # ────────────────────────── 读/写：体检与提交 ──────────────────────────
-def precheck(configured: str, bill_fid: str, is_travel: bool = False) -> dict:
+def precheck(configured: str, bill_fid: str, is_travel: bool = False, *, check_payment: bool = True) -> dict:
     """提交前体检（闸门本体，只读）。返回结论供前端展示。"""
     kd, _rl, _skill = get_client(configured)
     form = "ER_ExpReimbursement_Travel" if is_travel else FORM_EXPENSE
     info = get_bill(configured, bill_fid, is_travel)
     issues = []
+    payment = None
+    if check_payment:
+        try:
+            payment = payment_preview(configured, bill_fid, is_travel)
+        except (ValueError, RuntimeError) as exc:
+            issues.append(str(exc))
     if not info["recv_rows"]:
         issues.append("没有收票信息行（发票未挂上）")
+    if "contact" in info and not info["contact"]:
+        issues.append("往来单位为空，请核对申请单的往来单位并补齐后提交")
     if info["recv_rows"] and info["recv_total"] + 0.005 < info["amount"]:
         issues.append("发票价税合计 %.2f 小于报销金额 %.2f"
                       % (info["recv_total"], info["amount"]))
     try:
-        kd.precheck(bill_fid, form)
-        gate_ok, gate_msg = True, "闸门通过"
+        gate = kd.precheck(bill_fid, form)
+        blocks = gate.get("blocks") or []
+        gate_ok, gate_msg = not blocks, "；".join(blocks) or "闸门通过"
     except SystemExit as exc:
         gate_ok, gate_msg = False, str(exc)[:200]
     except Exception as exc:                              # noqa: BLE001
@@ -710,24 +859,23 @@ def precheck(configured: str, bill_fid: str, is_travel: bool = False) -> dict:
     return {"ok": not issues and gate_ok, "issues": issues,
             "gate_ok": gate_ok, "gate_message": gate_msg,
             "amount": info["amount"], "recv_total": info["recv_total"],
-            "recv_rows": len(info["recv_rows"]), "status": info["status"]}
+            "recv_rows": len(info["recv_rows"]), "status": info["status"], "payment": payment}
 
 
-def submit(configured: str, bill_fid: str, is_travel: bool = False) -> dict:
-    """提交单据（进审批流）。**调用方必须先做二次确认**。"""
-    kd, _rl, _skill = get_client(configured)
-    form = "ER_ExpReimbursement_Travel" if is_travel else FORM_EXPENSE
-    before = get_bill(configured, bill_fid, is_travel)
-    try:
-        kd.submit(bill_fid, form)
-    except SystemExit as exc:
-        return {"ok": False, "message": str(exc)[:400]}
-    after = get_bill(configured, bill_fid, is_travel)
-    return {"ok": True, "before_status": before["status"], "after_status": after["status"],
-            "bill_no": after["bill_no"], "amount": after["amount"]}
+def payment_preview(configured: str, fid: str, is_travel: bool = False) -> dict:
+    import reimburse_payment
+    kd, _, _ = get_client(configured)
+    return reimburse_payment.preview(kd, fid, is_travel)
 
 
-# ────────────────────────── 写：附件通道（行程单/说明材料） ──────────────────────────
+def submit(configured: str, bill_fid: str, is_travel: bool = False,
+           choice: str = "", snapshot: str = "") -> dict:
+    import reimburse_payment as payment
+    kd, rl, _ = get_client(configured)
+    return payment.submit_checked(kd, rl.KSVC_SUFFIX, bill_fid, is_travel, choice, snapshot,
+                                  lambda: precheck(configured, bill_fid, is_travel, check_payment=False))
+
+
 def attach_file(configured: str, bill_fid: str, file_path: str, alias: str = "",
                 is_travel: bool = False) -> dict:
     """把文件挂到报销单的**附件**（非发票材料走这里：行程单、说明、扫描件）。
@@ -819,7 +967,7 @@ BILL_STATUS_CN = {"Z": "暂存", "A": "已保存", "B": "审核中", "C": "已�
 
 
 def list_bills(configured: str = "", orgs=None, proposer: str = "", limit: int = 60,
-               only_pending: bool = False) -> list:
+               only_pending: bool = False, filters=None) -> list:
     """列出报销单（默认最近 N 张），带状态中文名，供"提交后查看进度"用。
 
     ⚠️ 这里**不逐单读收票信息**（那是每单一次 View，太贵）；需要看某张的发票时再单独打开。
@@ -829,8 +977,16 @@ def list_bills(configured: str = "", orgs=None, proposer: str = "", limit: int =
               "FOrgId.FNumber,FOrgId.FName,FCreateDate")
     out = []
     for form, kind in ((FORM_EXPENSE, "费用报销"), ("ER_ExpReimbursement_Travel", "差旅报销")):
+        if filters and filters.get("kind") and (filters["kind"] == "travel") != (kind == "差旅报销"):
+            continue
+        from list_filters import conditions, quote
+        where = conditions(filters, person_field="FProposerID.FName", date_field="FCreateDate", orgs=orgs)
+        if proposer:
+            where.append("FProposerID.FName=" + quote(proposer))
+        if only_pending:
+            where.append("FDocumentStatus='B'")
         try:
-            rows = kd.query(form, fields, "", top=limit, order="FID desc")
+            rows = kd.query(form, fields, " AND ".join(where), top=limit, order="FID desc")
         except Exception:                                 # noqa: BLE001
             continue
         idx = {f: i for i, f in enumerate(fields.split(","))}

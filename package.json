@@ -1,6 +1,7 @@
 {
   "name": "@littlebeaverstudio/kingdee-portal",
-  "version": "1.0.4",
+  "version": "1.1.0",
+  "license": "SEE LICENSE IN LICENSE",
   "type": "module",
   "description": "DSH bundle that opens the local Kingdee business portal in the sidebar, using your own account and permissions.",
   "homepage": "https://github.com/LittleBeaverStudio/kingdee-portal#readme",
@@ -19,6 +20,10 @@
   "files": [
     "cordis.patch.yml",
     "app.py",
+    "reimburse_payment.py",
+    "list_filters.py",
+    "workflow_actions.py",
+    "bill_lists.py",
     "financial_health.py",
     "financial_reports.py",
     "invoice_config.py",
