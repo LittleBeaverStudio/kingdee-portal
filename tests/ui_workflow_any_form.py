@@ -14,12 +14,12 @@ def run(url):
     blocked = dict(task, assignment_id='noopen', bill_no='CUS-001', form_id='BD_Customer', fid='',
                    kind='客户', can_open=False)
     bill = dict(bill_no='FKSQD00800', form_id='CN_PAYAPPLY', kind='付款申请单', status='B', status_cn='审核中',
-                date='2026-11-23', applicant='张三', org_no='001', org_name='示例科技', amount=276000,
+                date='2026-11-23', applicant='张三', org_no='001', org_name='示例科技', amount=8640,
                 remark='按月结付款，发票已核对',
                 fields=[],
                 entries=dict(columns=[{'t': '序号'}, {'t': '费用项目'}, {'t': '费用承担部门'},
                                       {'t': '项目'}, {'t': '付款金额'}],
-                             rows=[['1', '差旅费', '财务部', '项目A', '276000']]),
+                             rows=[['1', '差旅费', '财务部', '项目A', '8640']]),
                 generic=True)
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
@@ -56,7 +56,7 @@ def run(url):
         expect(page.locator('.modal')).to_contain_text('费用项目')
         expect(page.locator('.modal')).to_contain_text('差旅费')
         expect(page.locator('.modal')).to_contain_text('备注')
-        expect(page.locator('.modal')).to_contain_text('276000')
+        expect(page.locator('.modal')).to_contain_text('8640')
         expect(page.locator('.modal')).to_contain_text('张三')
         expect(page.locator('#wf-approve')).to_be_visible()
         from pathlib import Path
