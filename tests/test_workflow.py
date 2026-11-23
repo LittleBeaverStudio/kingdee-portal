@@ -75,6 +75,20 @@ class WorkflowTests(unittest.TestCase):
             self.assertEqual(self.kd._post.call_args.kwargs["retries"], 1)
             self.kd.save.assert_not_called()
 
+    def test_workflow_audit_retries_with_array_ids_when_kingdee_rejects_string(self):
+        self.kd.query.side_effect = [[row()], [row()], [row()], [row("1")]]
+        self.kd._post.side_effect = [
+            {"Result": {"ResponseStatus": {"IsSuccess": False,
+                                           "Errors": [{"Message": "请传入Ids或Numbers参数"}]}}},
+            {"Result": {"ResponseStatus": {"IsSuccess": True}}},
+        ]
+        result = w.decide("", "12", "abc123", "approve")
+        self.assertTrue(result["ok"])
+        first = json.loads(self.kd._post.call_args_list[0].args[1]["data"])
+        second = json.loads(self.kd._post.call_args_list[1].args[1]["data"])
+        self.assertEqual(first["Ids"], "456")
+        self.assertEqual(second["Ids"], ["456"])
+
     def test_unsupported_decision_or_malicious_identity_never_writes(self):
         for uid, aid, decision in (("12 OR 1=1", "abc123", "approve"), ("12", "x' OR 1=1", "approve"),
                                    ("12", "abc123", "terminate"), ("", "abc123", "approve")):
@@ -101,10 +115,15 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(w.decide("", "12", "abc123", "reject")["message"], "该节点审批意见必录")
 
     def test_api_success_without_completed_task_remains_unconfirmed(self):
-        for after in ([], [row()], [row("3")], [row("1", uid=99)]):
+        for after in ([row()], [row("3")], [row("1", uid=99)]):
             self.success(); self.kd.query.side_effect = [[row()], [row()], [row()], after]
             with self.assertRaisesRegex(RuntimeError, "状态未确认"):
                 w.decide("", "12", "abc123", "approve")
+
+    def test_task_leaving_the_pending_table_counts_as_completed(self):
+        # 审批后任务转下一节点或归档，本表查不到就是已办结。
+        self.success(); self.kd.query.side_effect = [[row()], [row()], [row()], []]
+        self.assertTrue(w.decide("", "12", "abc123", "approve")["ok"])
 
     def test_same_document_cannot_be_approved_simultaneously(self):
         with w._single_action(("tenant", "doc")):

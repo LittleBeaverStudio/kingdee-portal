@@ -5,7 +5,7 @@
 [![In-Memory Credentials](https://img.shields.io/badge/🔑-凭据不落盘-orange.svg)](#-我们处理哪些数据)
 [![License](https://img.shields.io/badge/License-No--Resale--orange.svg)](LICENSE)
 
-> 📅 生效日期：**2026-11-18** · 🏷️ 适用版本：插件 v1.1.1 / 门户 v1.1.1
+> 📅 生效日期：**2026-11-18** · 🏷️ 适用版本：插件 v1.1.2 / 门户 v1.1.2
 > 📦 适用产品：[LittleBeaverStudio/kingdee-portal](https://github.com/LittleBeaverStudio/kingdee-portal)
 
 ---
@@ -137,6 +137,7 @@ dsh plugin --profile desktop remove @littlebeaverstudio/kingdee-portal
 | 2026-11-09 | v1.0.2 | 首次发布，配套仓库公开版 |
 | 2026-11-12 | v1.0.3 | 包名 scope 改为 @littlebeaverstudio；补充自查清单与架构文档 |
 | 2026-11-17 | v1.0.4 | 下推改为非幂等安全调用并带回往来单位；数据处理范围无变化 |
+| 2026-11-23 | v1.1.2 | 审批范围从四类费用单据放开到本人全部工作流待办；非费用类走通用详情读取，审批动作不变 |
 | 2026-11-18 | v1.1.1 | 移植报销付款/申请关闭/待我审批/单据列表四个功能；审批人身份取登录会话，审批备注仅存本机门户审计，不写入金蝶；许可改为非转售 |
 
 政策更新会随仓库提交同步，生效日期以本页顶部为准。

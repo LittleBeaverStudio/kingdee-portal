@@ -3,6 +3,26 @@
 All notable changes to the Kingdee Portal DSH plugin are documented here.
 Format based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.1.2] - 2026-11-23
+
+### Fixed
+- "My approvals" no longer filters pending tasks by a hard-coded list of four
+  expense forms, which hid payment applications (`CN_PAYAPPLY`), payment bills,
+  purchase orders and every other workflow-enabled bill. The pending query now
+  scopes only by reviewer and status, so anything routed to the signed-in user
+  is listed and can be approved or rejected through the same `WorkflowAudit` call.
+- Forms without a tailored mapping fall back to a generic detail reader (a
+  dynamic `View` call) showing the header fields and the first detail grid;
+  tasks without a bill id stay visible but read-only instead of failing the
+  whole list.
+- Completed-approval history accepts any form identifier and reads the current
+  bill status through a three-field query for forms that have no tailored map.
+
+### Changed
+- Approval detail rendering splits into expense (tailored) and generic modes.
+  The history form filter adds payment application, payment bill, purchase
+  order and sales order.
+
 ## [1.1.1] - 2026-11-18
 
 ### Added

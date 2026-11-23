@@ -2056,7 +2056,8 @@
     }
     return '<form class="list-filters" id="history-filters">' + input('q','单据编号') + input('person','申请人') +
       select('form','单据类型',[['','全部类型'],['ER_ExpenseRequest','费用申请'],['ER_ExpenseRequest_Travel','出差申请'],
-        ['ER_ExpReimbursement','费用报销'],['ER_ExpReimbursement_Travel','差旅报销']]) +
+        ['ER_ExpReimbursement','费用报销'],['ER_ExpReimbursement_Travel','差旅报销'],['CN_PAYAPPLY','付款申请单'],
+        ['AP_PAYBILL','付款单'],['PUR_PurchaseOrder','采购订单'],['SAL_SaleOrder','销售订单']]) +
       select('result','我的处理结果',[['','全部结果'],['approve','同意'],['reject','驳回'],['other','其他处理']]) +
       input('date_from','处理日期从','date') + input('date_to','至','date') +
       '<div class="row-actions"><button class="btn pri" type="submit">筛选</button><button class="btn" type="button" id="history-filter-reset">重置</button></div></form>';
@@ -2091,12 +2092,14 @@
                 '</td><td>' + esc(x.org_no + ' ' + x.org_name) + '</td><td><button class="btn" data-wf-open="' + esc(x.assignment_id) + '">查看</button></td></tr>';
             })) : '<div class="hint">没有符合条件的已审批记录，可调整或清空处理日期筛选。</div>') + listPager('history', r);
         wireListPager('history', loadWorkflow);
-      } else content.innerHTML = listCoverage(r) +
+      } else content.innerHTML = '<p class="hint">列出全部派给你的工作流待办。费用类单据显示完整明细；其他单据显示关键字段与明细，审批同样可以直接办理。</p>' + listCoverage(r) +
         (workflowRows.length ? table([{t:"单据编号"},{t:"类型"},{t:"当前节点"},{t:"发送人"},{t:"组织"},{t:"接收时间"},{t:"操作"}],
           workflowRows.map(function (x) {
+            var action = x.can_open === false ? '<span class="hint">无单据内码，请到金蝶办理</span>'
+              : '<button class="btn pri" data-wf-open="' + esc(x.assignment_id) + '">查看并审批</button>';
             return '<tr><td class="mono">' + esc(x.bill_no) + '</td><td>' + esc(x.kind) + '</td><td>' + esc(x.node) +
               '</td><td>' + esc(x.sender) + '</td><td>' + esc(x.org_no + ' ' + x.org_name) + '</td><td>' + esc(x.created) +
-              '</td><td><button class="btn pri" data-wf-open="' + esc(x.assignment_id) + '">查看并审批</button></td></tr>';
+              '</td><td>' + action + '</td></tr>';
           })) : '<div class="hint">当前没有分配给你的待办任务。</div>');
       Array.prototype.forEach.call(root.querySelectorAll("[data-wf-open]"), function (b) {
         b.addEventListener("click", function () { workflowDialog(b.dataset.wfOpen, history); });
@@ -2109,26 +2112,53 @@
     var m = openModal(history ? '已审批记录' : '待办审批', '<div class="hint">正在读取审批单据…</div>', {dismissible:false});
     api((history ? '/api/workflow/history/' : '/api/workflow/task/') + encodeURIComponent(aid), null, 'GET').then(function (r) {
       if (!r.ok) { m.body.innerHTML = errLine(r.error); return; }
-      var t = r.task, b = r.bill, request = r.is_application;
+      var t = r.task, b = r.bill, request = r.is_application, generic = r.render === 'generic';
       history = history || r.read_only === true;
       var h = history ? '<div class="pd-sum"><div>我的处理结果<b>' + esc(t.result) + '</b></div><div>处理时间<b>' +
         esc((t.completed || '').replace('T',' ').slice(0,19)) + '</b></div><div>单据编号<b>' + esc(t.bill_no) + '</b></div></div>' +
         '<div class="sec">金蝶处理意见</div><p class="wf-text">' + esc(t.note || '未填写') + '</p>' : '';
       if (!b) { m.body.innerHTML = h + '<div class="hint">' + esc(r.bill_error || '无法读取当前单据') + '</div>'; return; }
-      h += '<div class="pd-sum"><div>单据编号<b>' + esc(t.bill_no) + '</b></div><div>单据类型<b>' + esc(t.kind) +
-        '</b></div><div>' + (history ? '单据当前状态' : '当前节点') + '<b>' + esc(history ? t.bill_status_cn : t.node) + '</b></div><div>申请人<b>' + esc(b.staff || b.proposer) +
-        '</b></div><div>组织<b>' + esc(b.org_no + ' ' + b.org_name) + '</b></div><div>金额<b>' + money(b.amount) + '</b></div></div>';
-      if (b.reason) h += '<p class="wf-text">' + esc(b.reason) + '</p>';
+      var applicant = b.staff || b.proposer || b.applicant || '';
+      var orgLine = [b.org_no, b.org_name].filter(Boolean).join(' ');
+      if (generic) {
+        h += '<div class="pd-sum">' +
+          '<div>单据日期<b>' + esc(b.date || '—') + '</b></div>' +
+          '<div>单据编号<b>' + esc(t.bill_no) + '</b></div>' +
+          '<div>单据类型<b>' + esc(t.kind) + '</b></div>' +
+          '<div>' + (history ? '单据当前状态' : '当前节点') + '<b>' + esc(history ? t.bill_status_cn : t.node) + '</b></div>' +
+          '<div>申请人<b>' + esc(applicant || '—') + '</b></div>' +
+          '<div>组织<b>' + esc(orgLine || '—') + '</b></div>' +
+          '<div>金额<b>' + money(b.amount) + '</b></div>' +
+          '<div>备注<b>' + esc(b.remark || '—') + '</b></div>' +
+          '</div>';
+        if (b.lookup_error) h += '<p class="hint">申请人取不到：' + esc(b.lookup_error) + '</p>';
+      } else {
+        h += '<div class="pd-sum"><div>单据编号<b>' + esc(t.bill_no) + '</b></div><div>单据类型<b>' + esc(t.kind) +
+          '</b></div><div>' + (history ? '单据当前状态' : '当前节点') + '<b>' + esc(history ? t.bill_status_cn : t.node) + '</b></div><div>申请人<b>' + esc(applicant || '—') +
+          '</b></div><div>组织<b>' + esc(orgLine || '—') + '</b></div><div>金额<b>' + money(b.amount) + '</b></div></div>';
+      }
       if (t.content) h += '<details><summary>任务说明</summary><p class="wf-text">' + esc(t.content) + '</p></details>';
-      h += '<div class="sec">费用明细</div>' + table([{t:"序号"},{t:"费用项目"},{t:"金额",num:1}], (b.entries || []).map(function (e) {
-        return '<tr><td>' + esc(e.seq) + '</td><td>' + esc(e.item || e.exp_item) + '</td><td class="num">' + money(e.amount) + '</td></tr>';
-      }));
-      if (!request) {
-        h += '<div class="sec">发票 <span class="sub">合计 ' + money(b.recv_total) + '</span></div>' +
-          table([{t:"收票单"},{t:"发票号码"},{t:"金额",num:1},{t:"原件"}], (b.recv_rows || []).map(function (x) {
-            var link = /^https?:\/\//i.test(x.pdf_url || '') ? '<a target="_blank" rel="noopener noreferrer" href="' + esc(x.pdf_url) + '">查看发票</a>' : '—';
-            return '<tr><td>' + esc(x.bill_no) + '</td><td>' + esc(x.invoice_no) + '</td><td class="num">' + money(x.amount) + '</td><td>' + link + '</td></tr>';
-          }));
+      if (generic) {
+        if (b.entries && b.entries.columns && (b.entries.rows || []).length) {
+          h += '<div class="sec">明细 <span class="sub">' + b.entries.rows.length + ' 行</span></div>' +
+            table(b.entries.columns, b.entries.rows.map(function (row) {
+              return '<tr>' + row.map(function (cell, i) {
+                return '<td' + (i ? ' class="num"' : '') + '>' + esc(cell) + '</td>';
+              }).join('') + '</tr>';
+            }));
+        }
+      } else {
+        if (b.reason) h += '<p class="wf-text">' + esc(b.reason) + '</p>';
+        h += '<div class="sec">费用明细</div>' + table([{t:"序号"},{t:"费用项目"},{t:"金额",num:1}], (b.entries || []).map(function (e) {
+          return '<tr><td>' + esc(e.seq) + '</td><td>' + esc(e.item || e.exp_item) + '</td><td class="num">' + money(e.amount) + '</td></tr>';
+        }));
+        if (!request) {
+          h += '<div class="sec">发票 <span class="sub">合计 ' + money(b.recv_total) + '</span></div>' +
+            table([{t:"收票单"},{t:"发票号码"},{t:"金额",num:1},{t:"原件"}], (b.recv_rows || []).map(function (x) {
+              var link = /^https?:\/\//i.test(x.pdf_url || '') ? '<a target="_blank" rel="noopener noreferrer" href="' + esc(x.pdf_url) + '">查看发票</a>' : '—';
+              return '<tr><td>' + esc(x.bill_no) + '</td><td>' + esc(x.invoice_no) + '</td><td class="num">' + money(x.amount) + '</td><td>' + link + '</td></tr>';
+            }));
+        }
       }
       if (history) { m.body.innerHTML = h; return; }
       h += '<label class="rb-field">审批备注（驳回时必填）<textarea id="wf-note" maxlength="1000" rows="3"></textarea></label>' +
