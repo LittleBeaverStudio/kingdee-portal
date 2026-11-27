@@ -47,7 +47,6 @@ from kd_client import KdError, KingdeeClient, normalize_base_url
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(BASE_DIR, "portal_config.json")
-EXAMPLE_CONFIG_PATH = os.path.join(BASE_DIR, "portal_config.example.json")
 
 DEFAULT_CONFIG = {
     "host": "127.0.0.1",
@@ -89,16 +88,12 @@ DEFAULT_CONFIG = {
 
 def load_config():
     cfg = dict(DEFAULT_CONFIG)
-    # Public checkouts ship only the example config. Fall back to it so a fresh
-    # clone runs out of the box; a local portal_config.json still wins.
-    path = CONFIG_PATH if os.path.exists(CONFIG_PATH) else (
-        EXAMPLE_CONFIG_PATH if os.path.exists(EXAMPLE_CONFIG_PATH) else "")
-    if path:
+    if os.path.exists(CONFIG_PATH):
         try:
-            with open(path, encoding="utf-8") as fh:
+            with open(CONFIG_PATH, encoding="utf-8") as fh:
                 cfg.update(json.load(fh) or {})
         except Exception as exc:  # noqa: BLE001
-            print("[warn] 配置文件读取失败，使用默认配置：", exc)
+            print("[warn] portal_config.json 读取失败，使用默认配置：", exc)
     return cfg
 
 
@@ -1562,7 +1557,8 @@ def api_workflow_tasks():
         _, uid = _workflow_actor()
         orgs = [str(x) for x in request.args.getlist("org") if str(x).strip()]
         rows = ([] if request.args.get("scope_empty") == "1" else
-                workflow_actions.list_tasks(str(CFG.get("expense_skill_dir") or ""), uid, orgs=orgs or None))
+                workflow_actions.list_tasks(str(CFG.get("expense_skill_dir") or ""), uid,
+                                            orgs=orgs or None, with_briefs=True))
         return jsonify({"ok": True, "rows": rows[:200], "has_more": len(rows) > 200})
     except KdError as exc:
         return jsonify({"ok": False, "error": exc.to_dict()})
@@ -1627,8 +1623,13 @@ def api_workflow_decide():
         decision = str(body.get("decision") or "")
         if decision == "reject" and not note:
             return _err("工作流审批", "请填写驳回原因（留存在门户审批记录）")
-        _audit("工作流-发起审批", {"assignment_id": aid, "decision": decision, "note": note}, actor)
-        result = workflow_actions.decide(str(CFG.get("expense_skill_dir") or ""), uid, aid, decision)
+        checked = body.get("checked_amounts") if decision == "approve" else None
+        if checked is not None and (not isinstance(checked, list) or len(checked) > 100):
+            return _err("工作流审批", "核定金额数据格式无效")
+        _audit("工作流-发起审批", {"assignment_id": aid, "decision": decision, "note": note,
+               "checked_amounts": checked}, actor)
+        result = workflow_actions.decide(str(CFG.get("expense_skill_dir") or ""), uid, aid,
+                                         decision, checked_amounts=checked)
         _audit("工作流-审批结果", {**result, "note": note}, actor)
         if not result.get("ok"):
             return _err("工作流审批", result.get("message") or "金蝶拒绝审批")
@@ -1748,7 +1749,7 @@ def api_reimburse_push():
         return jsonify({"ok": True, "result": res}), 200
     except KdError as exc:
         return jsonify({"ok": False, "error": exc.to_dict()}), 200
-    except BaseException as exc:                          # noqa: BLE001  SystemExit 也要接
+    except (Exception, SystemExit) as exc:
         _audit("报销-下推", {"error": repr(exc)[:200]}, actor)
         return _err("下推", repr(exc)[:300])
 

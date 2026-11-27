@@ -84,7 +84,7 @@ class AnyFormTests(unittest.TestCase):
         self.assertIn("单据日期", labels)
         self.assertNotIn("FAPPLYORGID", labels)
         self.assertEqual([c["t"] for c in bill["entries"]["columns"]],
-                         ["序号", "费用项目", "费用承担部门", "项目", "申请金额", "付款金额"])
+                         ["序号", "申请金额", "付款金额"])
         cols = [c["t"] for c in bill["entries"]["columns"]]
         self.assertEqual(bill["entries"]["rows"][0][cols.index("付款金额")], "276000")
         self.kd.view.assert_called_once_with("CN_PAYAPPLY", "789")

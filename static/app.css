@@ -279,6 +279,9 @@ a,button,input,select,summary{outline-offset:3px}
 .tbl tr:last-child td{border-bottom:none}
 .tbl tbody tr:hover td{background:var(--card-2)}
 .tbl th.num,.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+/* 审批动态明细：列多时靠左右拖动查看，单元格一律不换行，避免行高被撑高 */
+.tbl-detail{width:max-content;min-width:100%}
+.tbl-detail td,.tbl-detail th{white-space:nowrap}
 .scroll{overflow:auto;max-height:520px;scrollbar-color:var(--line) transparent;scrollbar-width:thin;
   border:1px solid var(--line);border-radius:12px;background:var(--card)}
 .detail-panel>.scroll{border:0;border-radius:0}
@@ -498,7 +501,7 @@ a,button,input,select,summary{outline-offset:3px}
 .pz-table .pz-orgname{color:var(--t2);font-size:12.5px;max-width:170px;overflow:hidden;
   text-overflow:ellipsis;white-space:nowrap}
 .pz-table input{width:100%;min-width:104px;border:1px solid var(--line);border-radius:9px;
-  padding:8px 10px;font-size:12.5px;color:var(--t1);background:#fff;
+  padding:8px 10px;font-size:12.5px;color:var(--t1);background:var(--card-2);
   transition:border-color .15s,box-shadow .15s}
 .pz-table input:focus{outline:none;border-color:var(--brand);box-shadow:0 0 0 3px rgba(59,91,219,.14)}
 .pz-table input::placeholder{color:#b8bfcc}
@@ -543,14 +546,18 @@ a,button,input,select,summary{outline-offset:3px}
 .modal-mask{position:fixed;inset:0;background:#0b1220a8;display:flex;align-items:flex-start;
   justify-content:center;padding:6vh 16px;z-index:9999;overflow-y:auto;backdrop-filter:blur(2px)}
 .modal{background:var(--card);border:1px solid var(--line);border-radius:16px;
-  box-shadow:0 24px 60px #00000055;width:min(720px,100%);max-height:86vh;
-  display:flex;flex-direction:column}
+  box-shadow:0 24px 60px #00000055;width:min(720px,100%);max-height:92vh;
+  resize:both;overflow:hidden;display:flex;flex-direction:column}
+.modal.zoomed{width:min(1240px,96vw);max-height:none}
 .modal-head{display:flex;justify-content:space-between;align-items:center;gap:12px;
   padding:15px 20px;border-bottom:1px solid var(--line-soft)}
 .modal-head b{font-size:15.5px;color:var(--t1)}
-.modal-x{appearance:none;border:0;background:transparent;color:var(--t3);font-size:22px;
+.modal-ctrl{display:flex;align-items:center;gap:4px;flex:none}
+.modal-x,.modal-zoom{appearance:none;border:0;background:transparent;color:var(--t3);
   line-height:1;cursor:pointer;padding:2px 8px;border-radius:8px}
-.modal-x:hover{background:var(--nav-hover);color:var(--t1)}
+.modal-x{font-size:22px}
+.modal-zoom{font-size:21px;min-width:34px}
+.modal-x:hover,.modal-zoom:hover{background:var(--nav-hover);color:var(--t1)}
 .modal-body{padding:16px 20px 20px;overflow-y:auto}
 .pd-sum{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 18px;
   background:var(--card-2);border:1px solid var(--line-soft);border-radius:12px;
@@ -705,7 +712,7 @@ a,button,input,select,summary{outline-offset:3px}
 .field input:focus, .rb-field input:focus, .rb-field select:focus,
 .rb-field textarea:focus, .apply-card input:focus {
   outline: none; border-color: var(--brand-strong);
-  box-shadow: 0 0 0 3px var(--brand-bg); background: #fff;
+  box-shadow: 0 0 0 3px var(--brand-bg); background: var(--bg-soft);
 }
 .field input::placeholder, .rb-field input::placeholder,
 .rb-field textarea::placeholder { color: var(--t3) }
@@ -713,7 +720,7 @@ a,button,input,select,summary{outline-offset:3px}
 .rb-field input[type=file] { font-size: 12.5px; color: var(--t3); max-width: 100%; }
 .rb-field input[type=file]::file-selector-button,
 .rb-field input[type=file]::-webkit-file-upload-button {
-  border: 1px solid var(--line); background: #fff; color: var(--t2);
+  border: 1px solid var(--line); background: var(--card); color: var(--t2);
   border-radius: 9px; padding: 8px 14px; margin-right: 10px; font-size: 12.5px;
   font-weight: 600; cursor: pointer; transition: border-color .15s, background .15s;
 }
@@ -734,7 +741,17 @@ select, input[type=date], input[type=number] { font-family: inherit; }
 }
 :where(input:not([type=file]):not([type=checkbox]):not([type=radio]):focus) {
   outline: none; border-color: var(--brand-strong);
-  box-shadow: 0 0 0 3px var(--brand-bg); background: #fff;
+  box-shadow: 0 0 0 3px var(--brand-bg); background: var(--bg-soft);
+}
+/* 浏览器自动填充（登录页账号/密码）会把输入框刷成白底，
+   深色主题下白底 + 浅色文字 = 看不见内容。用超长 inset 阴影强制主题底色。 */
+:where(input):-webkit-autofill,
+:where(input):-webkit-autofill:hover,
+:where(input):-webkit-autofill:focus,
+:where(input):-webkit-autofill-selected {
+  -webkit-text-fill-color: var(--t1);
+  -webkit-box-shadow: 0 0 0 1000px var(--bg-soft) inset;
+  caret-color: var(--t1);
 }
 /* 趋势图统一字体与线帽（原来 SVG 用浏览器默认字体，跟页面不搭） */
 .trend-chart text { font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; }

@@ -32,6 +32,9 @@ import sys
 import threading
 import time
 
+import detail_fields
+import detail_names
+
 _SKILL_ENV_DIR = os.environ.get("PORTAL_EXPENSE_SKILL_DIR", "").strip()
 SKILL_CANDIDATES = tuple(
     p for p in (
@@ -558,8 +561,11 @@ def get_bill(configured: str, bill_fid: str, is_travel: bool = False) -> dict:
     kd, _rl, _skill = get_client(configured)
     form = "ER_ExpReimbursement_Travel" if is_travel else FORM_EXPENSE
     o = kd.view(form, bill_fid)
-    ent_key = "ER_ExpenseReimbEntry"
-    ents = o.get(ent_key) or []
+    # 不同账套/版本报销明细的子表键不同：老版 ER_ExpenseReimbEntry，字段文档里是 FEntity。
+    ents = o.get("ER_ExpenseReimbEntry") or o.get("FEntity") or []
+    # 明细里的费用项目/部门/项目等只回编码时，补成中文名（含二开字段）。
+    ents = detail_names.resolve(ents, form, bill_fid, kd,
+                                entry_keys=("FEntity", "ER_ExpenseReimbEntry"))
     recv = o.get("RecInvInfo") or []                       # ⚠️ View 子表键不带 F 前缀
 
     def flat_name(v):
@@ -613,6 +619,8 @@ def get_bill(configured: str, bill_fid: str, is_travel: bool = False) -> dict:
         "entries": [{"entry_id": e.get("Id"), "seq": e.get("Seq"),
                      "amount": float(e.get("ExpenseAmount") or 0),
                      "exp_item": flat_name(e.get("ExpID"))} for e in ents],
+        # 审批弹窗用：按单据类型自动识别的有内容明细列（老的 entries 保留给办理页）。
+        "detail": detail_fields.detail_view(ents, form),
         "recv_rows": recv_rows,
         "recv_total": round(sum(x["amount"] for x in recv_rows), 2),
         "submittable": str(o.get("DocumentStatus") or "").strip() in ("Z", "A", "B"),
@@ -693,7 +701,11 @@ def request_detail(configured: str, bill_fid: str, is_travel: bool = False) -> d
     #    金额在 FLocAmount（明细金额），不是 Amount/ExpAmount —— 之前试
     #    ReqEntry/ExpenseEntry/Entry 全都取不到，明细恒为 0 行。
     ents = (o.get("FEntity") or o.get("ReqEntry") or [])
+    ents = detail_names.resolve(ents, form, str(bill_fid), kd,
+                                entry_keys=("FEntity", "ReqEntry"))
     entries = []
+    checked_rows = []
+    checked_seq = []          # 与 ents 同序，供费用明细「审核核定金额」列逐行对齐
     for e in ents:
         amt = (e.get("FLocAmount") or e.get("CheckedOrgAmount")
                or e.get("FPushReimbAmount") or e.get("Amount") or 0)
@@ -704,17 +716,41 @@ def request_detail(configured: str, bill_fid: str, is_travel: bool = False) -> d
             "pushed": float(e.get("FPushReimbAmount") or 0),
             "note": str(e.get("Note") or e.get("Remark") or "").strip(),
         })
+        # 审批同意时可顺手改核定金额：带出分录内码和现值，前端只提交改动行。
+        entry_id = str(e.get("Id") or e.get("FEntryID") or "").strip()
+        try:
+            checked = round(float(e.get("FCheckedOrgAmount") or 0), 2)
+        except (TypeError, ValueError):
+            checked = 0.0
+        checked_seq.append({"entry_id": entry_id if entry_id.isdigit() else "",
+                            "checked": checked})
+        if entry_id.isdigit():
+            checked_rows.append({"entry_id": entry_id, "seq": e.get("Seq"),
+                                 "item": flat(e.get("ExpenseItemID") or e.get("ExpID")),
+                                 "checked": checked})
+    # 出差申请单的「申请组织」在 View 里叫 FOrgID，费用申请单叫 OrgId，逐个兼容。
+    org_obj = (o.get("OrgId") or o.get("OrgID") or o.get("FOrgID") or o.get("FOrgId")
+               or o.get("ApplyOrgID") or o.get("FApplyOrgID") or o.get("ApplyOrgId") or {})
+    org_no = ""
+    org_name = ""
+    if isinstance(org_obj, dict):
+        org_no = str(org_obj.get("Number") or org_obj.get("FNumber") or "").strip()
+        org_name = flat(org_obj)
+    elif org_obj:
+        org_name = str(org_obj).strip()
     return {
         "bill_no": str(o.get("BillNo") or "").strip() or str(bill_fid),
         "date": str(o.get("Date") or "")[:10],
         "status": str(o.get("DocumentStatus") or "").strip(),
         "staff": flat(o.get("StaffID")),
-        "org_no": str((o.get("OrgId") or {}).get("Number") or "").strip(),
-        "org_name": flat(o.get("OrgId")),
+        "org_no": org_no,
+        "org_name": org_name,
         "amount": float(o.get("OrgAmountSum") or o.get("AmountSum") or 0),
         "reason": str(o.get("Reason") or o.get("Cause") or "").strip(),
         "is_borrow": str(o.get("IsBorrow")).strip().lower() == "true",
         "entries": entries,
+        "detail": detail_fields.detail_view(ents, form, checked=checked_seq),
+        "checked_rows": checked_rows,
         "close_status": str(o.get("CloseStatus") or "").strip(),
     }
 

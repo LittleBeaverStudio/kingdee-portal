@@ -4,6 +4,8 @@ import re
 import threading
 from contextlib import contextmanager
 
+import detail_fields
+import detail_names
 import portal_actions as actions
 from list_filters import quote
 
@@ -81,7 +83,62 @@ def _rows(kd, where, limit=201):
     return out
 
 
-def list_tasks(configured, uid, orgs=None, limit=201):
+# 列表摘要字段：不同单据的金额/事由字段名不统一，按 form 探测一次后缓存。
+_BRIEF_EXPR = {}
+_BRIEF_AMOUNT = ("FAPPLYAMOUNTFOR_H", "FAPPLYAMOUNTFOR", "FORGAMOUNTSUM", "FEXPAMOUNTSUM",
+                 "FBILLALLAMOUNT", "FALLAMOUNT", "FAMOUNT", "FAMOUNTFOR", "FPAYAMOUNTFOR_H")
+_BRIEF_REASON = ("FREASON", "FCAUSE", "FREMARK", "FNOTE")
+_BRIEF_REMARK = ("FREMARK", "FNOTE", "FCOMMENT", "FDESCRIPTION")
+_BRIEF_APPLICANT = ("FSTAFFID.FName", "FPROPOSERID.FName", "FAPPLICANTID.FName", "FCREATORID.FName")
+
+
+def bill_briefs(kd, rows):
+    """按单据内码批量补 amount/reason/remark/applicant，只读；探测失败静默跳过。"""
+    groups = {}
+    for i, row in enumerate(rows):
+        form = str(row.get("form_id") or "").strip()
+        fid = str(row.get("fid") or "").strip()
+        if form and fid.isdigit():
+            groups.setdefault(form, []).append((i, fid))
+    for form, items in groups.items():
+        fids = sorted({fid for _, fid in items})
+        where = "FID in (" + ",".join(fids) + ")"
+        specs = (("amount", _BRIEF_AMOUNT), ("reason", _BRIEF_REASON),
+                 ("remark", _BRIEF_REMARK), ("applicant", _BRIEF_APPLICANT))
+        for field, candidates in specs:
+            key = (form, field)
+            exprs = [_BRIEF_EXPR[key]] if key in _BRIEF_EXPR else candidates
+            for expr in exprs:
+                if not expr:
+                    continue
+                try:
+                    data = kd.query(form, "FID," + expr, where, 500)
+                except (Exception, SystemExit):          # noqa: BLE001 - 字段不支持就换写法
+                    continue
+                got = {}
+                for line in data or []:
+                    if not isinstance(line, list) or len(line) != 2:
+                        continue
+                    if field == "amount":
+                        value = _amount(line[1])
+                        if value is not None:
+                            got[str(line[0])] = value
+                    else:
+                        value = _text(line[1])
+                        if value:
+                            got[str(line[0])] = value
+                if got:
+                    _BRIEF_EXPR[key] = expr
+                    for i, fid in items:
+                        if fid in got and not rows[i].get(field):
+                            rows[i][field] = got[fid]
+                    break
+            else:
+                _BRIEF_EXPR[key] = ""
+    return rows
+
+
+def list_tasks(configured, uid, orgs=None, limit=201, with_briefs=False):
     uid = user_id(uid)
     kd, _, _ = actions.get_client(configured)
     where = _scope(uid) + " AND FStatus=0"
@@ -90,7 +147,7 @@ def list_tasks(configured, uid, orgs=None, limit=201):
     rows = _rows(kd, where, limit)
     if any(r["receiver_id"] != uid or r["status"] != "0" for r in rows):
         raise RuntimeError("待办归属或状态核对失败，请重新登录")
-    return rows
+    return bill_briefs(kd, rows) if with_briefs else rows
 
 
 def _task(kd, uid, aid, pending=True):
@@ -169,7 +226,8 @@ SKIP_FIELDS = {"ID", "BILLNO", "DOCUMENTSTATUS", "CREATEDATE", "MODIFYDATE", "AP
                "BILLTYPEID", "EXCHANGERATE", "CLOSESTATUS", "CANCELSTATUS",
                "CONTACTUNITTYPE", "RECTUNITTYPE"}
 # 明细里明确不展示的列（银行账号等信息量大但审批时用不上）。
-DETAIL_SKIP = {"ID", "EACHBANKACCOUNT", "SETTLEBANKACCOUNT", "PAYBANKACCOUNT"}
+DETAIL_SKIP = {"ID", "EACHBANKACCOUNT", "SETTLEBANKACCOUNT", "PAYBANKACCOUNT",
+               "SRCROWID", "SRCENTRYID"}
 # 明细列的业务优先级：序号最前，费用项目/承担部门/项目紧跟，其余按字典顺序。
 DETAIL_FIRST = {"SEQ": 0, "EXPENSEITEMID": 1, "COSTID": 2, "EXPENSEDEPTID": 3, "PROJECTID": 4}
 # 表头展示优先级：审批时最需要看的先出现，避免被 12 条上限截掉。
@@ -208,8 +266,6 @@ _lookup_cache = {}
 _lookup_miss = set()
 _lookup_notes = []
 _probe_expr = {}
-# 这些单据固定保留费用归集三列，即使当前单据没填，审批时也要能看到口径。
-FORCE_COLUMNS_FORMS = {"CN_PAYAPPLY", "AP_PAYBILL"}
 # 字段名取自 kingdee-data-exporter 的 field-docs（该租户二开较多：
 # 备注、项目都是自定义字段，标准字段名取不到）。
 # 付款申请单没有独立的「申请人」，业务上用创建人。
@@ -286,8 +342,17 @@ def _amount(value):
         return None
 
 
-def _label(key):
-    return FIELD_LABELS.get(_norm(key), key)
+def _label(key, form_id=""):
+    norm = _norm(key)
+    if norm in FIELD_LABELS:
+        return FIELD_LABELS[norm]
+    # 二开字段（F_TJKT_...）按该单据的字段文档取中文名，取不到才显示原始 Key。
+    doc = detail_fields.labels(form_id)
+    raw = str(key or "").strip().upper()
+    for candidate in (raw, "F" + norm, norm):
+        if candidate in doc:
+            return doc[candidate]
+    return key
 
 
 def _index(data):
@@ -482,6 +547,8 @@ def _resolve_all(kd, form_id, fid, index, data):
 
 def _display(key, value, resolved):
     text = _text(value)
+    if _norm(key) in detail_names.FORM_VALUE_KEYS:
+        return detail_names.FORM_LABELS.get(text, text)
     if key in resolved:
         return resolved[key]
     if key in FIELD_KIND and _id_text(value):
@@ -489,8 +556,10 @@ def _display(key, value, resolved):
     return text
 
 
-def _entries(rows, kd=None):
-    """从 View 的第一个明细数组里猜出表格：同名字段只留一列，最多 8 列 80 行。"""
+def _entries(rows, kd=None, form_id="", fid="", entry_keys=()):
+    """从 View 的明细数组里自动识别表格：同名字段只留一列，只显示有内容的列。"""
+    if kd:
+        rows = detail_names.resolve(rows, form_id, fid, kd, entry_keys=entry_keys)
     sample = [r for r in rows if isinstance(r, dict)][:80]
     if not sample:
         return None
@@ -512,12 +581,15 @@ def _entries(rows, kd=None):
         ident = _id_text(cell)
         if kind and ident:
             return names.get((kind, ident), "")
-        return _text(cell)
+        text = _text(cell)
+        if _norm(key) in detail_names.FORM_VALUE_KEYS:
+            return detail_names.FORM_LABELS.get(text, text)
+        return text
 
     hit = {}
     for row in sample:
         for key, cell in row.items():
-            if _norm(key) == "ID" or (isinstance(cell, list) and key in ("Name", "FName")):
+            if _norm(key) in ("ID", "ENTRYID") or (isinstance(cell, list) and key in ("Name", "FName")):
                 continue
             if cell_text(key, cell):
                 hit[key] = hit.get(key, 0) + 1
@@ -527,7 +599,7 @@ def _entries(rows, kd=None):
     # 同一中文标签只留一列：Fxxx 与 Fxxx_Id 同时回传时保留能读出名称的那列。
     groups = {}
     for key in hit:
-        groups.setdefault(_label(key), []).append(key)
+        groups.setdefault(_label(key, form_id), []).append(key)
     picked = []
     for keys in groups.values():
         if all(_norm(k) in DETAIL_SKIP for k in keys):
@@ -535,22 +607,27 @@ def _entries(rows, kd=None):
         usable = [k for k in keys if _norm(k) not in DETAIL_SKIP]
         picked.append(next((k for k in usable if not _id_text(sample[0].get(k))), usable[0]))
     order = {k: i for i, k in enumerate(FIELD_LABELS)}
-    picked.sort(key=lambda k: (0 if _label(k) != k else 1, DETAIL_FIRST.get(_norm(k), 50),
+    picked.sort(key=lambda k: (0 if _label(k, form_id) != k else 1, DETAIL_FIRST.get(_norm(k), 50),
                                order.get(_norm(k), 999), -hit[k],
                                first.index(k) if k in first else 999))
-    keys = picked[:8]
-    columns = [dict(t=_label(k)) for k in keys]
+    keys = picked[:30]
     body = []
     for row in sample:
         line = [cell_text(k, row.get(k)) for k in keys]
         if any(line):
             body.append(line)
+    columns = []
+    for i, k in enumerate(keys):
+        label = _label(k, form_id)
+        num, money = detail_fields.column_flags(label, [r[i] for r in body])
+        columns.append(dict(t=label, num=num, money=money))
     return dict(columns=columns, rows=body) if body else None
 
 
 def generic_detail(configured, form_id, fid, kind=""):
     """任意单据的只读详情：用通用 View 接口读全字段，不依赖逐表单适配。
 
+    明细只保留有内容的列（最多 30 列、前 80 行）；按单据类型用字段文档补中文名。
     审批动作本身只需要 FormId + 内码，与这里读到多少字段无关；读不到时抛错，
     由上层提示「在金蝶查看」，不会影响审批按钮。
     """
@@ -569,6 +646,11 @@ def generic_detail(configured, form_id, fid, kind=""):
     for key, label in FIELD_LABELS.items():
         if key in SKIP_FIELDS:
             continue
+        # 付款申请单上「应付金额」恒为 0，审批时看的是申请付款金额。
+        if form_id == "CN_PAYAPPLY" and key in ("PAYAMOUNTFOR", "PAYTOTALAMOUNTFOR"):
+            continue
+        if form_id == "CN_PAYAPPLY" and key == "APPLYAMOUNTFOR":
+            label = "申请付款金额"
         text = _display(key, index.get(key), resolved)
         if text:
             picked.append((key, dict(label=label, value=text)))
@@ -588,6 +670,11 @@ def generic_detail(configured, form_id, fid, kind=""):
         org_no = _text(org_raw.get("Number")) or _text(org_raw.get("FNumber"))
     # 二开单据的字段名和标准字段对不上，按字段文档兜底再取一遍。
     spec = FORM_FIELDS.get(form_id, {})
+    # 付款申请单：优先按字段文档里的「申请付款金额」取值，避免落到应付金额 0。
+    if form_id == "CN_PAYAPPLY" and not amount and spec.get("amount"):
+        fetched = _amount(_fetch(kd, form_id, str(fid), spec["amount"]))
+        if fetched is not None:
+            amount = fetched
     if spec:
         if not applicant and spec.get("applicant"):
             applicant = _fetch(kd, form_id, str(fid), spec["applicant"])
@@ -595,16 +682,16 @@ def generic_detail(configured, form_id, fid, kind=""):
             org_name = _fetch(kd, form_id, str(fid), spec["org"])
     project = _fetch(kd, form_id, str(fid), spec["project"]) if spec.get("project") else ""
     entries = None
-    for value in data.values():
+    for entry_key, value in data.items():
         if isinstance(value, list) and value and isinstance(value[0], dict):
-            entries = _entries(value, kd)
+            entries = _entries(value, kd, form_id, str(fid), (entry_key,))
             if entries:
                 break
     if entries:
-        # 明细没带费用归集字段时用表头的值补列，然后统一排到「序号」之后。
+        # 明细没带费用归集字段时，用表头有值的字段补列，排到「序号」之后。
+        # 用户 2026-11-27 口径：只显示有内容的字段，不再为空列占位。
         cols = entries["columns"]
         have = [c["t"] for c in cols]
-        force = form_id in FORCE_COLUMNS_FORMS
         for key in ("COSTID", "EXPENSEDEPTID", "PROJECTID"):
             label = FIELD_LABELS[key]
             if label in have:
@@ -612,9 +699,9 @@ def generic_detail(configured, form_id, fid, kind=""):
             text = _display(key, index.get(key), resolved)
             if key == "PROJECTID" and not text:
                 text = project
-            if not text and not force:
+            if not text:
                 continue
-            cols.append({"t": label})
+            cols.append({"t": label, "num": False, "money": False})
             for row in entries["rows"]:
                 row.append(text or "")
             have.append(label)
@@ -644,6 +731,7 @@ def generic_detail(configured, form_id, fid, kind=""):
         "org_no": org_no,
         "org_name": org_name,
         "amount": amount,
+        "amount_label": "申请付款金额" if form_id == "CN_PAYAPPLY" else "金额",
         "remark": remark,
         "lookup_error": "" if applicant else "；".join(_lookup_notes[:2])[:200],
         "fields": fields[:12],
@@ -673,7 +761,116 @@ def _single_action(key):
                 _locks[key] = (lock, count - 1)
 
 
-def decide(configured, uid, aid, decision):
+def save_checked_amounts(kd, rl, form_id, fid, entries):
+    """审批同意时把调整的核定金额写回申请单。
+
+    只支持费用/出差申请单；先 Save、成功并复核后再由 decide 走 WorkflowAudit。
+    任何一步失败都抛错中止审批，绝不出现「金额没改但单已批」。
+    """
+    if form_id not in ("ER_ExpenseRequest", "ER_ExpenseRequest_Travel"):
+        raise ValueError("该单据类型不支持审批时修改核定金额")
+    if not str(fid).isdigit():
+        raise ValueError("单据内码无效")
+    clean = []
+    for item in (entries or [])[:100]:
+        if not isinstance(item, dict):
+            raise ValueError("核定金额数据格式无效")
+        eid = str(item.get("entry_id") or "").strip()
+        if not eid.isdigit():
+            raise ValueError("核定金额对应的分录内码无效")
+        try:
+            amount = round(float(item.get("checked")), 2)
+        except (TypeError, ValueError):
+            raise ValueError("核定金额格式无效")
+        if not 0 <= amount <= 1000000000:
+            raise ValueError("核定金额超出允许范围")
+        # ⚠️ 分录内码必须传整数：金蝶 Save 的分录定位按数字匹配，
+        # 传字符串 "9001" 时 IsSuccess 仍为 true，但字段不会落到目标分录。
+        clean.append({"FEntryID": int(eid), "FCheckedOrgAmount": amount,
+                      "FCheckedLocAmount": amount})
+    if not clean:
+        return {"changed": False}
+    data = {
+        "NeedUpDateFields": ["FCheckedOrgAmount", "FCheckedLocAmount"],
+        # ⚠️ 同调用回读：用与保存一致的裸字段名（不带 FEntity_ 前缀）。
+        # 该租户的 ExecuteBillQuery 元数据不存在 FEntity_FCheckedOrgAmount，
+        # 二次查询会报 MsgCode=9；View 对审核中单据又把核定字段回成 0。
+        # 只有 Save 响应里金蝶自己回传的字段值才可信。
+        "NeedReturnFields": ["FEntryID", "FCheckedOrgAmount", "FCheckedLocAmount"],
+        "IsDeleteEntry": "false", "SubSystemId": "",
+        "IsVerifyBaseDataField": "false", "IsEntryBatchFill": "true",
+        # ⚠️ IsAutoAdjustField=false：核定金额是人工值，开启自动调整可能被
+        # 金蝶按申请金额重算回去，Save 成功但回读仍是旧值。
+        "ValidateFlag": "false", "NumberSearch": "true", "IsAutoAdjustField": "false",
+        "InterationFlags": "", "IgnoreInterationFlag": "true",
+        "IsControlPrecision": "false", "ValidateRepeatJson": "true",
+        "Model": {"FID": str(fid), "FEntity": clean},
+    }
+    raw = kd._post(rl.KSVC_SUFFIX + "Save.common.kdsvc",
+                   {"formid": form_id, "data": json.dumps(data, ensure_ascii=False)},
+                   retries=1, timeout=90)
+    status = ((raw.get("Result") or {}).get("ResponseStatus") or {}) if isinstance(raw, dict) else {}
+    if status.get("IsSuccess") is not True:
+        msg = "；".join(str(e.get("Message") or "") for e in status.get("Errors", []) if isinstance(e, dict))
+        raise RuntimeError("核定金额写回失败，审批未执行：" + (msg or "金蝶未确认")[:200])
+    # 写后核对：只读 Save 响应回传值。任何二次查询/View 都不可靠（见上）。
+    returned = _returned_checked_amounts(raw)
+    unverified = []
+    for item in clean:
+        eid = str(item["FEntryID"])
+        want = item["FCheckedOrgAmount"]
+        got = returned.get(eid)
+        if got is None:
+            unverified.append(eid)
+            continue
+        if abs(got - want) > 0.01:
+            # 金蝶明确回传了不同的值 → 真失败，中止审批。
+            raise RuntimeError(
+                "核定金额写回后复核不一致（分录 %s：期望 %.2f，金蝶回传 %.2f），"
+                "审批未执行，请到金蝶核对" % (eid, want, got))
+    # 金蝶未回传核定字段时不硬卡审批（否则本功能完全不可用），但要明确告警。
+    return {"changed": True, "entries": len(clean),
+            "unverified": unverified,
+            "verify_note": ("已提交金蝶保存，但接口未回传核定金额供复核，请在金蝶核对是否写入"
+                            if unverified else "")}
+
+
+def _returned_checked_amounts(raw):
+    """从 Save 响应里挖出金蝶回传的分录核定金额，返回 {分录内码: 金额}。
+
+    金蝶不同版本回传位置不一：Result 下直接是 FEntity 数组，或 NeedReturnFields
+    回写成扁平键。这里做有限深度的宽容遍历，只认「分录内码键 + 核定金额键」同现的节点。
+    解析不到就返回空字典 —— 调用方据此告警，不硬卡审批。
+    """
+    out = {}
+    root = raw.get("Result") if isinstance(raw, dict) else None
+    if not isinstance(root, dict):
+        return out
+    id_keys = ("FEntryID", "Id", "FENTRYID")
+    amt_keys = ("FCheckedOrgAmount", "FCHECKEDORGAMOUNT")
+
+    def walk(node, depth=0):
+        if depth > 6:
+            return
+        if isinstance(node, dict):
+            eid = next((str(node[k]).strip() for k in id_keys if node.get(k) not in (None, "")), "")
+            amt = next((node[k] for k in amt_keys if node.get(k) not in (None, "")), None)
+            if eid.isdigit() and amt is not None:
+                try:
+                    out[eid] = float(amt)
+                except (TypeError, ValueError):
+                    pass
+            for value in node.values():
+                walk(value, depth + 1)
+        elif isinstance(node, list):
+            for value in node:
+                walk(value, depth + 1)
+
+    walk(root)
+    return out
+
+
+def decide(configured, uid, aid, decision, checked_amounts=None):
     uid, aid = user_id(uid), assignment_id(aid)
     if decision not in ("approve", "reject"):
         raise ValueError("只支持同意或驳回")
@@ -688,6 +885,9 @@ def decide(configured, uid, aid, decision):
                       + " AND FKEYVALUE=" + quote(task["fid"]), 3)
         if len(peers) != 1 or peers[0]["assignment_id"] != aid:
             raise ValueError("同一单据存在多个待办节点，无法唯一确定本次审批，请在金蝶核对")
+        saved = {"changed": False}
+        if decision == "approve" and checked_amounts:
+            saved = save_checked_amounts(kd, rl, task["form_id"], task["fid"], checked_amounts)
         data = {"FormId": task["form_id"], "Ids": task["fid"], "Numbers": [],
                 "UserId": int(uid), "ApprovalType": 1 if decision == "approve" else 2}
         # WorkflowAudit 是 DynamicFormService 的 special 方法，外层只带 data。
@@ -720,4 +920,4 @@ def decide(configured, uid, aid, decision):
         if after and (len(after) != 1 or after[0]["receiver_id"] != uid or after[0]["status"] != "1"):
             raise RuntimeError("审批已返回成功，但任务完成状态未确认，请刷新并核对审批记录，勿重复操作")
         return {"ok": True, "assignment_id": aid, "bill_no": task["bill_no"], "form_id": task["form_id"],
-                "decision": decision, "task_status": "1", "node": task["node"]}
+                "decision": decision, "task_status": "1", "node": task["node"], "checked_amounts": saved}

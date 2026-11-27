@@ -1442,7 +1442,8 @@
     mask.className = "modal-mask";
     mask.innerHTML = '<div class="modal" role="dialog" aria-modal="true" aria-label="' +
       esc(title) + '"><div class="modal-head"><b>' + esc(title) + "</b>" +
-      '<button type="button" class="modal-x" aria-label="关闭">×</button></div>' +
+      '<div class="modal-ctrl"><button type="button" class="modal-zoom" aria-label="放大">+</button>' +
+      '<button type="button" class="modal-x" aria-label="关闭">×</button></div></div>' +
       '<div class="modal-body"></div></div>';
     document.body.appendChild(mask);
     var body = mask.querySelector(".modal-body");
@@ -1455,6 +1456,20 @@
       if (opts.onClose) opts.onClose();
     }
     mask.querySelector(".modal-x").addEventListener("click", close);
+    var zoom = mask.querySelector(".modal-zoom");
+    var modalEl = mask.querySelector(".modal");
+    zoom.addEventListener("click", function (e) {
+      e.stopPropagation();
+      var big = !modalEl.classList.contains("zoomed");
+      // 直接写 inline 尺寸：绕过 resize:both 可能留下的 inline width 覆盖 .zoomed。
+      modalEl.style.width = big ? "min(1240px,96vw)" : "";
+      modalEl.style.maxHeight = big ? "none" : "";
+      modalEl.classList.toggle("zoomed", big);
+      zoom.textContent = big ? "−" : "+";
+      zoom.setAttribute("aria-label", big ? "还原" : "放大");
+      zoom.title = big ? "还原" : "放大";
+    });
+    zoom.title = "放大";
     if (opts.dismissible !== false) {
       mask.addEventListener("click", function (e) { if (e.target === mask) close(); });
       var onKey = function (e) {
@@ -2015,9 +2030,10 @@
         "<div>是否借款<b>" + (q.is_borrow || it.is_borrow ? "是" : "否") + "</b></div>" +
         ((q.reason || it.reason) ? '<div style="grid-column:1/-1">事由<b style="font-weight:400">' +
           esc(q.reason || it.reason) + "</b></div>" : "") + "</div>"];
+      var dynRequest = dynamicDetailTable(q.detail);
       h.push('<div class="sec">费用明细 <span class="sub">' +
-        (q.entries || []).length + " 行</span></div>");
-      h.push(table([{ t: "#" }, { t: "费用项目" }, { t: "明细金额", num: 1 },
+        ((q.detail && q.detail.rows ? q.detail.rows.length : (q.entries || []).length)) + " 行</span></div>");
+      h.push(dynRequest || table([{ t: "#" }, { t: "费用项目" }, { t: "明细金额", num: 1 },
                     { t: "已下推", num: 1 }, { t: "本次还可下推", num: 1 }],
         (q.entries || []).map(function (e) {
           var left = (Number(e.amount) || 0) - (Number(e.pushed) || 0);
@@ -2084,27 +2100,54 @@
       workflowRows = r.rows || [];
       if (history) {
         content.innerHTML = '<p class="hint">包含在金蝶和门户处理的审批。金额、申请人和单据状态显示当前值；每次审批分别保留。</p>' +
-          (workflowRows.length ? table([{t:'单据编号'},{t:'类型'},{t:'申请人'},{t:'金额',num:1},{t:'我的处理结果'},
-            {t:'处理时间'},{t:'单据当前状态'},{t:'组织'},{t:'操作'}], workflowRows.map(function (x) {
+          (workflowRows.length ? table([{t:'单据编号'},{t:'类型'},{t:'申请人'},{t:'金额',num:1},{t:'事由/备注'},
+            {t:'我的处理结果'},{t:'处理时间'},{t:'单据当前状态'},{t:'组织'},{t:'操作'}], workflowRows.map(function (x) {
+              var brief = x.reason || x.remark || '—';
               return '<tr><td><button class="link mono" data-wf-open="' + esc(x.assignment_id) + '">' + esc(x.bill_no) + '</button></td><td>' + esc(x.kind) +
                 '</td><td>' + esc(x.applicant || '—') + '</td><td class="num">' + (x.amount == null ? '—' : money(x.amount)) +
-                '</td><td>' + esc(x.result) + '</td><td>' + esc((x.completed || '').replace('T',' ').slice(0,19)) + '</td><td>' + esc(x.bill_status_cn) +
+                '</td><td class="brief">' + esc(brief) + '</td>' +
+                '<td>' + esc(x.result) + '</td><td>' + esc((x.completed || '').replace('T',' ').slice(0,19)) + '</td><td>' + esc(x.bill_status_cn) +
                 '</td><td>' + esc(x.org_no + ' ' + x.org_name) + '</td><td><button class="btn" data-wf-open="' + esc(x.assignment_id) + '">查看</button></td></tr>';
             })) : '<div class="hint">没有符合条件的已审批记录，可调整或清空处理日期筛选。</div>') + listPager('history', r);
         wireListPager('history', loadWorkflow);
       } else content.innerHTML = '<p class="hint">列出全部派给你的工作流待办。费用类单据显示完整明细；其他单据显示关键字段与明细，审批同样可以直接办理。</p>' + listCoverage(r) +
-        (workflowRows.length ? table([{t:"单据编号"},{t:"类型"},{t:"当前节点"},{t:"发送人"},{t:"组织"},{t:"接收时间"},{t:"操作"}],
+        (workflowRows.length ? table([{t:"单据编号"},{t:"类型"},{t:"当前节点"},{t:"发送人"},{t:"组织"},{t:"金额",num:1},
+          {t:"事由/备注"},{t:"接收时间"},{t:"操作"}],
           workflowRows.map(function (x) {
             var action = x.can_open === false ? '<span class="hint">无单据内码，请到金蝶办理</span>'
               : '<button class="btn pri" data-wf-open="' + esc(x.assignment_id) + '">查看并审批</button>';
             return '<tr><td class="mono">' + esc(x.bill_no) + '</td><td>' + esc(x.kind) + '</td><td>' + esc(x.node) +
-              '</td><td>' + esc(x.sender) + '</td><td>' + esc(x.org_no + ' ' + x.org_name) + '</td><td>' + esc(x.created) +
-              '</td><td>' + action + '</td></tr>';
+              '</td><td>' + esc(x.sender) + '</td><td>' + esc(x.org_no + ' ' + x.org_name) + '</td>' +
+              '<td class="num">' + (x.amount == null ? '—' : money(x.amount)) + '</td>' +
+              '<td class="brief">' + esc(x.reason || x.remark || x.content || '—') + '</td>' +
+              '<td>' + esc(x.created) + '</td><td>' + action + '</td></tr>';
           })) : '<div class="hint">当前没有分配给你的待办任务。</div>');
       Array.prototype.forEach.call(root.querySelectorAll("[data-wf-open]"), function (b) {
         b.addEventListener("click", function () { workflowDialog(b.dataset.wfOpen, history); });
       });
     }).catch(function () { if (seq === workflowSeq) $('wf-content').innerHTML = '<div class="banner err">审批列表读取失败，请刷新重试。</div>'; });
+  }
+
+  // 审批详情的费用明细：列由后端按单据类型自动识别，只含有内容的字段。
+  function dynamicDetailTable(d, editable) {
+    if (!d || !d.columns || !d.columns.length || !(d.rows || []).length) return '';
+    var cols = d.columns;
+    return '<div class="scroll"><table class="tbl tbl-detail"><thead><tr>' +
+      cols.map(function (h) { return "<th" + (h.num ? ' class="num"' : "") + ">" + esc(h.t) + "</th>"; }).join("") +
+      "</tr></thead><tbody>" + d.rows.map(function (row, ri) {
+        return "<tr>" + row.map(function (cell, i) {
+          var c = cols[i] || {};
+          if (c.edit) {
+            var meta = (d.checked || [])[ri] || {};
+            return '<td class="num">' + (editable && meta.entry_id
+              ? '<input type="number" min="0" step="0.01" class="wf-checked" data-idx="' + ri +
+                '" value="' + esc(cell) + '" aria-label="审核核定金额">'
+              : esc(cell)) + '</td>';
+          }
+          var v = c.money ? money(cell) : (c.num ? num(cell) : esc(cell));
+          return "<td" + (c.num ? ' class="num"' : "") + ">" + v + "</td>";
+        }).join("") + "</tr>";
+      }).join("") + "</tbody></table></div>";
   }
 
   function workflowDialog(aid, history) {
@@ -2128,7 +2171,7 @@
           '<div>' + (history ? '单据当前状态' : '当前节点') + '<b>' + esc(history ? t.bill_status_cn : t.node) + '</b></div>' +
           '<div>申请人<b>' + esc(applicant || '—') + '</b></div>' +
           '<div>组织<b>' + esc(orgLine || '—') + '</b></div>' +
-          '<div>金额<b>' + money(b.amount) + '</b></div>' +
+          '<div>' + esc(b.amount_label || '金额') + '<b>' + money(b.amount) + '</b></div>' +
           '<div>备注<b>' + esc(b.remark || '—') + '</b></div>' +
           '</div>';
         if (b.lookup_error) h += '<p class="hint">申请人取不到：' + esc(b.lookup_error) + '</p>';
@@ -2141,17 +2184,16 @@
       if (generic) {
         if (b.entries && b.entries.columns && (b.entries.rows || []).length) {
           h += '<div class="sec">明细 <span class="sub">' + b.entries.rows.length + ' 行</span></div>' +
-            table(b.entries.columns, b.entries.rows.map(function (row) {
-              return '<tr>' + row.map(function (cell, i) {
-                return '<td' + (i ? ' class="num"' : '') + '>' + esc(cell) + '</td>';
-              }).join('') + '</tr>';
-            }));
+            dynamicDetailTable(b.entries);
         }
       } else {
         if (b.reason) h += '<p class="wf-text">' + esc(b.reason) + '</p>';
-        h += '<div class="sec">费用明细</div>' + table([{t:"序号"},{t:"费用项目"},{t:"金额",num:1}], (b.entries || []).map(function (e) {
+        var canEditChecked = !history && request && b.detail && (b.detail.checked || []).some(function (x) { return x.entry_id; });
+        var dyn = dynamicDetailTable(b.detail, canEditChecked);
+        h += '<div class="sec">费用明细' + (canEditChecked ? ' <span class="sub">末列可改，点「同意」写回金蝶；不改则不写</span>' : '') +
+          '</div>' + (dyn || table([{t:"序号"},{t:"费用项目"},{t:"金额",num:1}], (b.entries || []).map(function (e) {
           return '<tr><td>' + esc(e.seq) + '</td><td>' + esc(e.item || e.exp_item) + '</td><td class="num">' + money(e.amount) + '</td></tr>';
-        }));
+        })));
         if (!request) {
           h += '<div class="sec">发票 <span class="sub">合计 ' + money(b.recv_total) + '</span></div>' +
             table([{t:"收票单"},{t:"发票号码"},{t:"金额",num:1},{t:"原件"}], (b.recv_rows || []).map(function (x) {
@@ -2190,9 +2232,19 @@
       });
       submit.addEventListener('click', function () {
         if (!decision || executing || workflowBusy[aid]) return;
+        var checkedAmounts = [];
+        if (decision === 'approve' && b && b.detail && b.detail.checked) {
+          Array.prototype.forEach.call(m.body.querySelectorAll('.wf-checked'), function (input) {
+            var row = b.detail.checked[Number(input.dataset.idx)];
+            var value = parseFloat(input.value);
+            if (!row || !row.entry_id || !isFinite(value) || value < 0 || value === Number(row.checked)) return;
+            checkedAmounts.push({entry_id: row.entry_id, checked: value});
+          });
+        }
         executing = workflowBusy[aid] = true;
         submit.disabled = cancel.disabled = x.disabled = true; submit.textContent = '正在审批…';
-        api('/api/workflow/decide', {assignment_id:aid, decision:decision, note:chosenNote, confirm:'WORKFLOW'}).then(function (res) {
+        api('/api/workflow/decide', {assignment_id:aid, decision:decision, note:chosenNote,
+          checked_amounts:checkedAmounts, confirm:'WORKFLOW'}).then(function (res) {
           executing = workflowBusy[aid] = false;
           x.disabled = false; submit.hidden = cancel.hidden = true;
           loadWorkflow();
@@ -2202,8 +2254,10 @@
             confirm.hidden = true; return;
           }
           m.close();
+          var ca = (res.result || {}).checked_amounts || {};
+          var warn = ca.verify_note ? '<p class="banner warn">' + esc(ca.verify_note) + '</p>' : '';
           openModal('审批完成', '<div class="banner info">' + esc(t.bill_no) + ' 已' +
-            (decision === 'approve' ? '同意' : '驳回') + '，当前任务已完成。</div>');
+            (decision === 'approve' ? '同意' : '驳回') + '，当前任务已完成。</div>' + warn);
         }).catch(function () {
           executing = workflowBusy[aid] = false; x.disabled=false; submit.hidden=cancel.hidden=true; confirm.hidden=true;
           message.innerHTML = '<div class="banner warn">审批结果未确认，请刷新待办并核对金蝶审批记录，勿重复操作。</div>';
@@ -3217,7 +3271,7 @@
     h.push('<div class="card adm-create">' +
       '<div class="adm-create-grid">' +
       '<div class="rb-field"><label>公司名称 <span class="req">必填</span></label>' +
-      '<input id="a-name" placeholder="如 示例科技有限公司甲"></div>' +
+      '<input id="a-name" placeholder="如 北京埃诺登科技有限公司"></div>' +
       '<div class="rb-field"><label>金蝶服务器地址 <span class="req">必填</span></label>' +
       '<input id="a-server" placeholder="https://xxx.ik3cloud.com/"></div>' +
       '<div class="rb-field"><label>账套 <span class="opt">可留空（单账套自动识别）</span></label>' +

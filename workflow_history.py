@@ -123,7 +123,24 @@ def _headers(kd, rl, rows, person=""):
                     raise RuntimeError("审批记录对应多张同号单据，请在金蝶核对")
                 headers[key] = dict(fid=str(fid), applicant=str(applicant or ""),
                     amount=(None if amount is None else float(amount or 0)),
-                    bill_status=str(status or ""), bill_status_cn=actions.BILL_STATUS_CN.get(str(status), str(status)))
+                    bill_status=str(status or ""), bill_status_cn=actions.BILL_STATUS_CN.get(str(status), str(status)),
+                    reason="", remark="")
+    # 部分单据（费用报销/差旅报销等）申请人或金额字段名与假设不同 → 按内码再补一次。
+    # 只填空值，不覆盖已取到的字段；探测失败静默保留空，列表显示「—」。
+    brief_rows = [dict(fid=h["fid"], form_id=form, applicant=h["applicant"], amount=h["amount"],
+                       reason=h["reason"], remark=h["remark"])
+                  for (form, _), h in headers.items()]
+    try:
+        workflow.bill_briefs(kd, brief_rows)
+    except (Exception, SystemExit):                      # noqa: BLE001
+        pass
+    for (form, number), h in headers.items():
+        for brief in brief_rows:
+            if brief["fid"] == h["fid"] and brief["form_id"] == form:
+                for field in ("applicant", "amount", "reason", "remark"):
+                    if not h.get(field) and brief.get(field):
+                        h[field] = brief[field]
+                break
     return headers
 
 
